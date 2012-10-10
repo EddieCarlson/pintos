@@ -1,0 +1,63 @@
+@c Local settings
+
+@set coursenumber CSE 451
+@set localpintoshttppath http://@/www.github.com/@/willscott/@/pintos
+@set coursewebpage http://@/www.cs.washington.edu/@/451
+
+@set courseserver @url{forkbomb.cs.washington.edu}
+
+@clear recommendvnc
+@clear recommendcygwin
+
+@macro localmachines{}
+The 451 ``officially supported'' Pintos development environment is
+the support managed Fedora VM image.  Instructions for installation
+of Pintos on this image are described @code{todo}
+@end macro
+
+@macro localpathsetup{}
+Under @command{csh}, Stanford's login shell, you can do so
+with this command:
+@example
+bash src/misc/setup-path.sh
+@end example
+@noindent
+This will cause the src/utils directory to be added to your path.
+@end macro
+
+@macro localcrossbuild{}
+Watch the commands executed during the build.  On the Linux machines,
+the ordinary system tools are used.  On a SPARC machine, special build
+tools are used, whose names begin with @samp{i386-elf-}, e.g.@:
+@code{i386-elf-gcc}, @code{i386-elf-ld}.  These are ``cross-compiler''
+tools.  That is, the build is running on a SPARC machine (called the
+@dfn{host}), but the result will run on a simulated 80@var{x}86 machine
+(called the @dfn{target}).  The @samp{i386-elf-@var{program}} tools are
+specially built for this configuration.
+@end macro
+
+@macro localhonorcodepolicy{}
+In the context of @value{coursenumber}, please refraining from 
+reading any homework solutions available online or elsewhere.
+Reading the source code for other operating system kernels,
+such as Linux or FreeBSD, is allowed, but do not copy code from them
+literally. Please cite code or other sources (stackoverflow, forums, etc.) that inspired your own solutions.
+
+@end macro
+
+@macro localcredits{}
+@c none needed
+@end macro
+
+@macro localcvspolicy{}
+Instead, we recommend integrating your team's changes early and often,
+using a source code control system such as CVS .
+This is less likely to produce surprises, because everyone can see
+everyone else's code as it is written, instead of just when it is
+finished.  These systems also make it possible to review changes and,
+when a change introduces a bug, drop back to working versions of code.
+@end macro
+
+@macro localdevelopmenttools{}
+@c Descriptions of additional, local development tools can be inserted here
+@end macro

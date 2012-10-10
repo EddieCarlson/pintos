@@ -1,0 +1,181 @@
+@node Coding Standards
+@appendix Coding Standards
+
+We encourage you to keep your code readable to help your TAs grade you fairly.
+Some points from the projects are allocated to coding style to reflect this
+goal. In addition, we believe that encouraging legible code has several other
+benefits: Your partners will have an easier time interacting with your code,
+Bugs commonly occur in poorly structured, overly-complex code, and ultimately
+you will be forming good habits for future development. This section will
+provide some suggestions for writing readable code.
+
+@menu
+* Coding Style::                
+* C99::                         
+* Unsafe String Functions::     
+@end menu
+
+@node Coding Style
+@section Style
+
+Style refers to how readable your
+code is.  This means that your code is well formatted, your
+variable names are descriptive and your functions are decomposed and
+well commented.
+
+The existing Pintos code is written in the GNU style and largely
+follows the @uref{http://www.gnu.org/prep/standards_toc.html, , GNU
+Coding Standards}.  We encourage you to follow the applicable parts of
+them too, especially chapter 5, ``Making the Best Use of C.''  Using a
+different style won't cause actual problems, but it's ugly to see
+gratuitous differences in style from one function to another.
+
+Please limit C source file lines to 80 characters long, to conform to
+the existing code.
+
+Pintos comments sometimes refer to external standards or specifications by
+writing a name inside square brackets, like this: @code{[IA32-v3a]}. These
+names refer to the reference names used in this documentation
+(@pxref{Bibliography}).
+
+If you remove existing Pintos code, please delete it from your source file
+entirely. Don't just put it into a comment or a conditional compilation
+directive, because that makes the resulting code hard to read.
+
+We're only going to do a compile in the directory for the project being
+submitted. You don't need to make sure that the previous projects also compile.
+
+Project code should be written so that all of the subproblems for the project
+function together, that is, without the need to rebuild with different macros
+defined, etc. If you do extra credit work that changes normal Pintos behavior
+so as to interfere with grading, then you must implement it so that it only
+acts that way when given a special command-line option of the form
+@option{-@var{name}}, where @var{name} is a name of your choice. You can add
+such an option by modifying @func{parse_options} in @file{threads/init.c}.
+
+The introduction describes additional coding style guidelines (@pxref{Design}).
+
+@node C99
+@section C99
+
+The Pintos source code uses a few features of the ``C99'' standard
+library that were not in the original 1989 standard for C.  Many
+programmers are unaware of these feature, so we will describe them.  The
+new features used in Pintos are
+mostly in new headers:
+
+@table @file
+@item <stdbool.h>
+Defines macros @code{bool}, a 1-bit type that takes on only the values
+0 and 1, @code{true}, which expands to 1, and @code{false}, which
+expands to 0.
+
+@item <stdint.h>
+On systems that support them, this header defines types
+@code{int@var{n}_t} and @code{uint@var{n}_t} for @var{n} = 8, 16, 32,
+64, and possibly other values.  These are 2's complement signed and unsigned
+types, respectively, with the given number of bits.  
+
+On systems where it is possible, this header also defines types
+@code{intptr_t} and @code{uintptr_t}, which are integer types big
+enough to hold a pointer.
+
+On all systems, this header defines types @code{intmax_t} and
+@code{uintmax_t}, which are the system's signed and unsigned integer
+types with the widest ranges.
+
+For every signed integer type @code{@var{type}_t} defined here, as well
+as for @code{ptrdiff_t} defined in @file{<stddef.h>}, this header also
+defines macros @code{@var{TYPE}_MAX} and @code{@var{TYPE}_MIN} that
+give the type's range.  Similarly, for every unsigned integer type
+@code{@var{type}_t} defined here, as well as for @code{size_t} defined
+in @file{<stddef.h>}, this header defines a @code{@var{TYPE}_MAX}
+macro giving its maximum value.
+
+@item <inttypes.h>
+@file{<stdint.h>} provides no straightforward way to format
+the types it defines with @func{printf} and related functions.  This
+header provides macros to help with that.  For every
+@code{int@var{n}_t} defined by @file{<stdint.h>}, it provides macros
+@code{PRId@var{n}} and @code{PRIi@var{n}} for formatting values of
+that type with @code{"%d"} and @code{"%i"}.  Similarly, for every
+@code{uint@var{n}_t}, it provides @code{PRIo@var{n}},
+@code{PRIu@var{n}}, @code{PRIu@var{x}}, and @code{PRIu@var{X}}.
+
+You use these something like this, taking advantage of the fact that
+the C compiler concatenates adjacent string literals:
+@example
+#include <inttypes.h>
+@dots{}
+int32_t value = @dots{};
+printf ("value=%08"PRId32"\n", value);
+@end example
+@noindent
+The @samp{%} is not supplied by the @code{PRI} macros.  As shown
+above, you supply it yourself and follow it by any flags, field
+width, etc.
+
+@item <stdio.h>
+The @func{printf} function has some new type modifiers for printing
+standard types:
+
+@table @samp
+@item j
+For @code{intmax_t} (e.g.@: @samp{%jd}) or @code{uintmax_t} (e.g.@:
+@samp{%ju}).
+
+@item z
+For @code{size_t} (e.g.@: @samp{%zu}).
+
+@item t
+For @code{ptrdiff_t} (e.g.@: @samp{%td}).
+@end table
+
+Pintos @func{printf} also implements a nonstandard @samp{'} flag that
+groups large numbers with commas to make them easier to read.
+@end table
+
+@node Unsafe String Functions
+@section Unsafe String Functions
+
+A few of the string functions declared in the standard
+@file{<string.h>} and @file{<stdio.h>} headers are notoriously unsafe.
+The worst offenders are intentionally not included in the Pintos C
+library:
+
+@table @func
+@item strcpy
+When used carelessly this function can overflow the buffer reserved
+for its output string.  Use @func{strlcpy} instead.  Refer to
+comments in its source code in @code{lib/string.c} for documentation.
+
+@item strncpy
+This function can leave its destination buffer without a null string
+terminator.  It also has performance problems.  Again, use
+@func{strlcpy}.
+
+@item strcat
+Same issue as @func{strcpy}.  Use @func{strlcat} instead.
+Again, refer to comments in its source code in @code{lib/string.c} for
+documentation.
+
+@item strncat
+The meaning of its buffer size argument is surprising.
+Again, use @func{strlcat}.
+
+@item strtok
+Uses global data, so it is unsafe in threaded programs such as
+kernels.  Use @func{strtok_r} instead, and see its source code in
+@code{lib/string.c} for documentation and an example.
+
+@item sprintf
+Same issue as @func{strcpy}.  Use @func{snprintf} instead.  Refer
+to comments in @code{lib/stdio.h} for documentation.
+
+@item vsprintf
+Same issue as @func{strcpy}.  Use @func{vsnprintf} instead.
+@end table
+
+If you try to use any of these functions, the error message will give
+you a hint by referring to an identifier like
+@code{dont_use_sprintf_use_snprintf}.

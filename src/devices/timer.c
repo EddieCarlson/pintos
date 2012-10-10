@@ -17,8 +17,20 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+/* Struct to store a sleeping thread along with its
+   data indicating how much time it has left to sleep. */
+typedef struct thread_sleeping {
+  int64_t time_slept;
+  int64_t total_time;
+  struct thread *thread_ptr;
+  struct list_elem elem;
+} thread_sleeping, *thread_sleeping_ptr;
+
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
+
+/* List of threads that are currently sleeping */
+static thread_sleeping sleeping_threads;
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */

@@ -12,9 +12,14 @@
 
 static void test_sleep (int thread_cnt, int iterations);
 
+void yielder () { thread_yield(); }
+
 void
 test_alarm_simultaneous (void) 
 {
+	//tid_t tid_1 = thread_create("first yielder", PRI_DEFAULT, yielder, NULL);
+	//tid_t tid_2 = thread_create("second yielder", PRI_DEFAULT, yielder, NULL);
+	//thread_yield();
   test_sleep (3, 5);
 }
 

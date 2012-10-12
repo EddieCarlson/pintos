@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -119,10 +120,15 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
-
+	
+	int sleep_start;					/* When thread started sleeping */
+	int sleep_total;					/* Length of time thread must sleep */
+	
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
-
+	
+	struct list_elem sleeping_elem;		/* Sleeping list element */
+	
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -136,6 +142,8 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+struct list *get_sleeping_list(void);
 
 void thread_init (void);
 void thread_start (void);

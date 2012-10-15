@@ -107,7 +107,7 @@ timer_sleep (int64_t ticks)
   intr_set_level(INTR_ON);
   ASSERT (intr_get_level () == INTR_ON);
   //while (timer_elapsed (start) < ticks) 
-  //  thread_yield ();	
+  //  thread_yield ();	timer_sleep
   
   // Get current thread
   struct thread *cur = thread_current(); 

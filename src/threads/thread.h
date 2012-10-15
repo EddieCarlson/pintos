@@ -128,6 +128,7 @@ struct thread
     struct list_elem elem;              /* List element. */
 	
 	struct list_elem sleeping_elem;		/* Sleeping list element */
+  struct list_elem blocked_elem;
 
   struct lock *blocked_lock;
 
@@ -150,6 +151,7 @@ struct thread
 extern bool thread_mlfqs;
 
 struct list *get_sleeping_list(void);
+struct list *get_blocked_list(void);
 
 void thread_init (void);
 void thread_start (void);

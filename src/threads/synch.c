@@ -113,9 +113,25 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  if (!list_empty (&sema->waiters)) {
+    struct list_elem *e = list_begin(&sema->waiters);
+    struct thread *best_thread = list_entry(e, struct thread, elem);
+
+    for (e = list_begin(&sema->waiters); e != list_end(&sema->waiters); e = list_next(e)) {
+      struct thread *cur_thread = list_entry(e, struct thread, elem);
+
+      if (cur_thread->priority > best_thread->priority) {
+        best_thread = cur_thread;
+      }
+    }
+
+    ASSERT(best_thread != NULL);
+    ASSERT(best_thread->magic == 0xcd6abf4b);
+    list_remove(&best_thread->elem);
+    thread_unblock(best_thread);
+  }
+  // thread_unblock (list_entry (list_pop_front (&sema->waiters),
+  //                               struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
 }
@@ -212,7 +228,27 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   thread_current()->blocked_lock = lock;
-  sema_down (&lock->semaphore);
+  struct list *blocked_list = get_blocked_list();
+
+  while (!lock_try_acquire(lock)) {
+    list_push_back (&(lock->semaphore.waiters), &thread_current ()->elem);
+    list_push_back (blocked_list, &thread_current ()->blocked_elem);
+
+    int old_level = intr_context();
+    intr_disable();
+    thread_block ();   
+    intr_set_level(old_level);
+  }
+
+  struct list_elem *e;
+  for (e = list_begin(blocked_list); e != list_end(blocked_list); e = list_next(e)) {
+    struct thread *blocked_entry = list_entry(e, struct thread, blocked_elem);
+    if (blocked_entry == thread_current()) {
+      list_remove(e);
+      break;
+    }
+  }
+  
   lock->holder = thread_current ();
 }
 

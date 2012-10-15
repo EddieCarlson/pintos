@@ -33,6 +33,9 @@ static struct list all_list;
  * woken up */
 static struct list sleeping_list;
 
+//TODO
+static struct list blocked_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -109,6 +112,7 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init (&sleeping_list);
+  list_init (&blocked_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -566,41 +570,36 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else {
-    // Priority donation
-    struct list_elem *all_e;
-    for (all_e = list_begin(&all_list); all_e != list_end(&all_list); all_e = list_next(all_e)) {
-      struct thread *cur_thread = list_entry(all_e, struct thread, allelem);
-      if (cur_thread->status == THREAD_BLOCKED) {
-        struct thread *child = cur_thread;
-        // while (child->status == THREAD_BLOCKED) {
-        //   struct thread *next_child = child->blocked_lock->holder;
-        //   if (next_child->status != THREAD_RUNNING) {
-        //     if (next_child->priority < child->priority) {
-        //       next_child->priority = child->priority; 
-        //     } 
-        //     child = next_child;
-        //   } else {
-        //     break;
-        //   }
-        // }        
-      }
-    }
 
     // Get highest priority thread on ready list
     struct list_elem *e = list_begin(&ready_list);
-    int max_priority = PRI_MIN;
     struct thread *best_thread = list_entry(e, struct thread, elem);
 
     for (e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e)) {
       struct thread *cur_thread = list_entry(e, struct thread, elem);
-      if (cur_thread->priority > max_priority) {
+      if (cur_thread->priority > best_thread->priority) {
         best_thread = cur_thread;
-        max_priority = cur_thread->priority;
       }
     }
 
-    list_remove(&best_thread->elem);
-    return best_thread;
+    for (e = list_begin(&blocked_list); e != list_end(&blocked_list); e = list_next(e)) {
+      struct thread *blocked_thread = list_entry(e, struct thread, blocked_elem);
+      if (blocked_thread->priority > best_thread->priority) {
+        best_thread = blocked_thread;
+      } 
+    }
+
+    struct thread *child = best_thread;
+    while (child->status == THREAD_BLOCKED) {
+      struct thread *next_child = child->blocked_lock->holder;
+      if (next_child->priority < child->priority) {
+        next_child->priority = child->priority; 
+      } 
+      child = next_child;
+    }
+
+    list_remove(&child->elem);
+    return child;
   }
   //return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
@@ -695,6 +694,11 @@ uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 struct list *get_sleeping_list(void)
 {
   return &sleeping_list;
+}
+
+struct list *get_blocked_list(void)
+{
+  return &blocked_list;
 }
 
 int get_max_ready_priority (void) {

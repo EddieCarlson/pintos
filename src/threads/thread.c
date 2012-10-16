@@ -388,6 +388,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_current ()->original_priority = new_priority;
   if (new_priority < get_max_ready_priority()) {
     thread_yield();
   }
@@ -706,6 +707,13 @@ int get_max_ready_priority (void) {
   int max_priority = PRI_MIN;
 
   for (e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e)) {
+    struct thread *cur_thread = list_entry(e, struct thread, elem);
+    if (cur_thread->priority > max_priority) {
+      max_priority = cur_thread->priority;
+    }
+  }
+
+  for (e = list_begin(&blocked_list); e != list_end(&blocked_list); e = list_next(e)) {
     struct thread *cur_thread = list_entry(e, struct thread, elem);
     if (cur_thread->priority > max_priority) {
       max_priority = cur_thread->priority;

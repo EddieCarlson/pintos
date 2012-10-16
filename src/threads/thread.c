@@ -714,7 +714,7 @@ int get_max_ready_priority (void) {
   }
 
   for (e = list_begin(&blocked_list); e != list_end(&blocked_list); e = list_next(e)) {
-    struct thread *cur_thread = list_entry(e, struct thread, elem);
+    struct thread *cur_thread = list_entry(e, struct thread, blocked_elem);
     if (cur_thread->priority > max_priority) {
       max_priority = cur_thread->priority;
     }

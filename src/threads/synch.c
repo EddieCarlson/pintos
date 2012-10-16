@@ -125,8 +125,7 @@ sema_up (struct semaphore *sema)
       }
     }
 
-    ASSERT(best_thread != NULL);
-    ASSERT(best_thread->magic == 0xcd6abf4b);
+    best_thread->blocked_lock = NULL;
     list_remove(&best_thread->elem);
     thread_unblock(best_thread);
   }
@@ -288,6 +287,7 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  
   if (releaser->priority < get_max_ready_priority()) {
    thread_yield();
   }

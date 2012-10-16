@@ -285,6 +285,7 @@ thread_unblock (struct thread *t)
  */
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
+  //t->blocked_lock = NULL;
   intr_set_level (old_level);
 }
 
@@ -542,6 +543,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->original_priority = priority;
   t->magic = THREAD_MAGIC;
 
+  t->blocked_lock = NULL;
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -572,7 +575,40 @@ next_thread_to_run (void)
     return idle_thread;
   else {
 
+    // All blocked threads (on a lock) donate their priority
+    struct list_elem *b_e;
+
+    for (b_e = list_begin(&blocked_list); b_e != list_end(&blocked_list); b_e = list_next(b_e)) {
+      struct thread *child = list_entry(b_e, struct thread, blocked_elem);
+      while (child->status == THREAD_BLOCKED && child->blocked_lock->holder != NULL) {
+        if (child->blocked_lock != NULL) {
+          struct thread *next_child = child->blocked_lock->holder;
+          if (next_child->priority < child->priority) {
+            next_child->priority = child->priority;
+          }
+          child = next_child;
+        } else {
+          break;
+        }
+      }
+    }
+
+
     // Get highest priority thread on ready list
+    struct list_elem *e = list_begin(&ready_list);
+    struct thread *best_thread = list_entry(e, struct thread, elem);
+
+    for (e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e)) {
+      struct thread *cur_thread = list_entry(e, struct thread, elem);
+      if (cur_thread->priority > best_thread->priority) {
+        best_thread = cur_thread;
+      }
+    }
+
+    list_remove(&best_thread->elem);
+    return best_thread;
+
+    /*
     struct list_elem *e = list_begin(&ready_list);
     struct thread *best_thread = list_entry(e, struct thread, elem);
 
@@ -600,7 +636,7 @@ next_thread_to_run (void)
     }
 
     list_remove(&child->elem);
-    return child;
+    return child;*/
   }
   //return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }

@@ -1,0 +1,345 @@
+			+--------------------+
+			|        CS 451      |
+			| PROJECT 1: THREADS |
+			|   DESIGN DOCUMENT  |
+			+--------------------+
+				   
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Eddie Carlson <edc4@u.washinton.edu>
+Galen Knapp <knappg@cs.washington.edu>
+Phillip Leland <pbl2@u.washinton.edu>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+        CONTEXT SWITCHING
+        =================
+
+>> C1: When "first yielder" finishes, which thread deletes its stack? Why?
+
+The "second yielder" thread deletes "first yielder". First yielder finishes,
+schedule() is called, second yielder is chosen as the next running thread and returns
+from schedule(), then thread_schedule_tail() is called after the switch and 
+first yielder is destroyed there. 
+
+>> C2: Give the backtrace of the kernel stack of a thread suspended
+>> by a timer interrupt.
+
+Included below is the kernel stack trace when a timer_interrupt occurs
+
+pintos-debug: dumping backtrace of thread 'main' @0xc000e000
+#0  timer_interrupt (args=0xc000ee38) at ../../devices/timer.c:218
+#1  0xc0021828 in intr_handler (frame=0xc000ee38) at ../../threads/interrupt.c:373
+#2  0xc0021a2f in intr_entry () at ../../threads/intr-stubs.S:37
+#3  0xc000ee38 in ?? ()
+#4  0xc0028123 in memset (dst_=0xc0035be0, value=-1073598148, size=<optimized out>)
+    at ../../lib/string.c:286
+#5  0x00000001 in ?? ()
+Backtrace stopped: previous frame inner to this frame (corrupt stack?)
+
+pintos-debug: dumping backtrace of thread 'idle' @0xc0103000
+#0  0xc0020ede in schedule () at ../../threads/thread.c:694
+#1  0xc0021493 in intr_disable () at ../../threads/interrupt.c:106
+#2  0xc0021738 in intr_set_level (level=INTR_OFF) at ../../threads/interrupt.c:83
+#3  0xc0020f61 in thread_yield () at ../../threads/thread.c:365
+#4  0xc00227f5 in sema_up (sema=0xc000ef7c) at ../../threads/synch.c:141
+#5  0xc00210dd in idle (idle_started_=0xc000ef7c) at ../../threads/thread.c:460
+#6  0xc002103d in kernel_thread (function=0xc00210c4 <idle>, aux=0xc000ef7c)
+    at ../../threads/thread.c:498
+#7  0x00000000 in ?? ()
+
+pintos-debug: dumping backtrace of thread 'first yielder' @0xc0104000
+#0  0xc0020ede in schedule () at ../../threads/thread.c:694
+#1  0x00000000 in ?? ()
+
+
+			     ALARM CLOCK
+			     ===========
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+Here is the changed struct thread declaration. The changes that are made
+for the Alarm Clock are explained below.
+
+struct thread
+  {
+    /* Owned by thread.c. */
+    tid_t tid;                          /* Thread identifier. */
+    enum thread_status status;          /* Thread state. */
+    char name[16];                      /* Name (for debugging purposes). */
+    uint8_t *stack;                     /* Saved stack pointer. */
+    int priority;                       /* Priority. */
+    struct list_elem allelem;           /* List element for all threads list. */
+	
+	  int sleep_start;					/* When thread started sleeping */
+	  int sleep_total;					/* Length of time thread must sleep */
+	
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem;              /* List element. */
+	
+	  struct list_elem sleeping_elem;		/* Sleeping list element */
+    struct list_elem blocked_elem;
+
+    struct lock *blocked_lock;
+
+    int original_priority;
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic;                     /* Detects stack overflow. */
+ };
+
+sleep_start: A integer that represents the time when this thread started 
+						sleeping.
+						
+sleep_total: An integer that represents the minimum number of ticks this 
+						thread must sleep.
+
+struct list_elem sleeping_elem: A list element that is used by the sleeping
+							list. 
+							
+ADDED LIST
+
+static struct list sleeping_list: A list structure that contains elements
+							with pointers to threads that are currently sleeping.
+
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe what happens in a call to timer_sleep(),
+>> including the effects of the timer interrupt handler.
+
+In a call to timer_sleep, the time that the call is made is stored
+in the current thread, as well as the length of time it must sleep.
+That thread is pushed onto the back of the sleeping list and the 
+thread is blocked. 
+
+Every time the timer interrupt handler is run it updates the 
+threads in the sleeping list and montiors if they have slept enough, adding
+them to the ready list if they have.
+
+>> A3: What steps are taken to minimize the amount of time spent in
+>> the timer interrupt handler?
+
+Instead of analyzing all threads, only the subset of sleeping threads is
+looked at.
+
+---- SYNCHRONIZATION ----
+
+>> A4: How are race conditions avoided when multiple threads call
+>> timer_sleep() simultaneously?
+
+Interrupts are tunred off when the blocking of a thread occurs, 
+not allowing another thread to attempt to be put to sleep at the 
+same time. 
+
+>> A5: How are race conditions avoided when a timer interrupt occurs
+>> during a call to timer_sleep()?
+
+When a call to thread_block is made, interrupts are turned off. This prevents
+a race condition from a timer interrupt.
+
+---- RATIONALE ----
+
+>> A6: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+It was important to keep a list of all the threads that were currently sleeping
+becuase it takes a shorter amount of time to traverse that list than alllist. 
+
+Also thread_block was used because it performed the functionality of 
+taking a thread off of the ready list and yielding to the next scheduled thread.
+
+
+
+			 PRIORITY SCHEDULING
+			 ===================
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+Here is the changed struct thread declaration. The changes that are made
+for Priority Scheduling are explained below.
+
+struct thread
+  {
+    /* Owned by thread.c. */
+    tid_t tid;                          /* Thread identifier. */
+    enum thread_status status;          /* Thread state. */
+    char name[16];                      /* Name (for debugging purposes). */
+    uint8_t *stack;                     /* Saved stack pointer. */
+    int priority;                       /* Priority. */
+    struct list_elem allelem;           /* List element for all threads list. */
+	
+		int sleep_start;					/* When thread started sleeping */
+		int sleep_total;					/* Length of time thread must sleep */
+	
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem;              /* List element. */
+	
+		struct list_elem sleeping_elem;		/* Sleeping list element */
+		struct list_elem blocked_elem;
+
+		struct lock *blocked_lock;
+
+		int original_priority;
+
+#ifdef USERPROG
+    /* Owned by userprog/process.c. */
+    uint32_t *pagedir;                  /* Page directory. */
+#endif
+
+    /* Owned by thread.c. */
+    unsigned magic;                     /* Detects stack overflow. */
+ };
+ 
+ struct list_elem blocked_elem: A list element that is used to place a thread
+					in the blocked_list.
+					
+ struct lock *blocked_lock: A pointer the lock held by another thread that 
+							this thread is currently waiting for. Used for priority donation.
+							
+ int original_priority: Integer to hold the prioirty this thread should have
+							if it is not being donated to. 
+							
+							
+BLOCKED LIST
+
+static struct list blocked_list: A list of all threads currently blocked. 
+							Used to select donors for priority donation.
+
+
+>> B2: Explain the data structure used to track priority donation.
+>> Use ASCII art to diagram a nested donation.  (Alternately, submit a
+>> .png file.)
+
+ART:
+
+1)  | low | // a thread with low priority holds a lock
+2)  | med | -> | low |  // a thread with medium priority waits on that lock
+3)  | med | -> | med |  // that thread donates its priority to the previously-low thread
+4)  | high | -> | med | -> | med |  // a high priority thread wants a lock that medium has
+5)  | high | -> | high | -> | med |  // high priority thread donates it's priority to the 
+                   // next thread in the donation chain
+6)  | high | -> | high | -> | high |  // the newly-high thread donates it's new priority
+                    // to the first thread 
+
+
+DATA STRUCTURE EXPLANATION: 
+
+In our implementation we used a list of blocked threads to track priority 
+donation. In the above artistic example, specifically step 2, the thread with 
+medium prioirty would be stored in the blocked_list. When priority donation happens,
+the receiver stores that new priority in their priority field.
+
+---- ALGORITHMS ----
+
+>> B3: How do you ensure that the highest priority thread waiting for
+>> a lock, semaphore, or condition variable wakes up first?
+
+Whenever a lock or semaphore is released or upped, we perform a check of 
+all the waiting threads and wake up the thread with the highest priority. This 
+thread is then removed from that list of waiters. For a condition variable, the 
+same thing happens with the list of semaphore elements, we find the semaphore
+element that has the thread with the highest priority waiting on it.
+
+>> B4: Describe the sequence of events when a call to lock_acquire()
+>> causes a priority donation.  How is nested donation handled?
+
+When a call to lock_acquire is made and a lock is currently held, the thread
+is placed on the blocked_list and stores a pointer to that lock that it is 
+waiting on, and thread_block is called. Thread_block causes schedule() to be called, 
+which then calls next_thread_to_run(). Everytime next_thread_to_run() is called,
+priority donation for each thread on the block list is performed using the pointers
+to the locks that block them. 
+
+Nested donation is handled here, because when you donate to a thread that has
+a lock, you check if that thread is waiting on another lock, and if so you 
+continue donating the same priority. 
+
+>> B5: Describe the sequence of events when lock_release() is called
+>> on a lock that a higher-priority thread is waiting for.
+
+First off, when a lock is released, that thread reverts back to its original
+priority. Then lock->holder pointer is set to null, and sema_up is called. 
+
+Then we check to see if the current threads priority is less than the max 
+priority on the ready_list, yielding if it is. The priority scheduler then takes care
+of running that thread next.
+
+---- SYNCHRONIZATION ----
+
+>> B6: Describe a potential race in thread_set_priority() and explain
+>> how your implementation avoids it.  Can you use a lock to avoid
+>> this race?
+
+A race occurs when checking your priotiry against the rest of the priorities,
+checking if you need to yield. After this check is performed, you don't believe
+you need to wake up. But due to a thread waking up from sleep, you do in fact need 
+to yield. 
+
+Yes a lock could be used. A lock that all interups would need to acquire would
+handle this race condition. Thread_set_priority would also acquire this lock, preventing
+the aformentioned race condition. 
+
+
+---- RATIONALE ----
+
+>> B7: Why did you choose this design?  In what ways is it superior to
+>> another design you considered?
+
+This was chosen because it is a robust design. It performs a check to see 
+if any priority donation needs to occur on each call to next_thread_to_run(). 
+
+This ensures that priority donation happens immediately and will have already occured
+whenever it is necessary. 
+
+A previous design that we considered always found the highest priority thread,
+regardless of if that thread was blocked or not. If that highest priority thread
+was blocked, then priority donation happened then. The problem with this design was
+that it would not work if the highest priority thread was waiting on a semaphore and 
+not a lock. The final design helps prevent this issue. 
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?

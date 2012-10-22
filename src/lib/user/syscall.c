@@ -75,10 +75,25 @@ exit (int status)
   NOT_REACHED ();
 }
 
-pid_t
-exec (const char *file)
+int
+fork ()
 {
-  return (pid_t) syscall1 (SYS_EXEC, file);
+  return (pid_t) syscall0 (SYS_FORK);
+}
+
+int dup2 (int oldfd, int newfd)
+{
+  return (int) syscall2 (SYS_DUP2, oldfd, newfd);
+}
+
+int pipe (int pipefd[])
+{
+  return (int) syscall1 (SYS_PIPE, pipefd);
+}
+int
+exec (const char *cmd_line)
+{
+  return (int) syscall1 (SYS_EXEC, cmd_line);
 }
 
 int

@@ -285,7 +285,6 @@ thread_unblock (struct thread *t)
  */
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
-  //t->blocked_lock = NULL;
   intr_set_level (old_level);
 }
 
@@ -388,6 +387,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  // Reset both the original and current priority. This new priority is now
+  // the baseline. We yield here if suddenly we have been dropped from the
+  // highest priority spot
   thread_current ()->priority = new_priority;
   thread_current ()->original_priority = new_priority;
   if (new_priority < get_max_ready_priority()) {
@@ -575,7 +577,19 @@ next_thread_to_run (void)
     return idle_thread;
   else {
 
-    // All blocked threads (on a lock) donate their priority
+    // --Priority donation--
+    // This part works in two parts. First, we go through all currently blocked threads,
+    // and have each one of those blocked threads donate their priority, if necessary,
+    // to the threads holding the locks they are blocked on. Once all donations have
+    // been given, we can just grab the best ready thread, as all of the ready threads
+    // will have the potentially donated priorities.
+    //
+    // Important note: Each thread, once it releases a lock, bumps its current priority
+    // back to its original priority. This negates the effect of that lock's donation, and
+    // if there are more threads donating to it, those effect be re-applied in the next
+    // call to this function.
+
+    // Have all blocked threads donate their priority.
     struct list_elem *b_e;
 
     for (b_e = list_begin(&blocked_list); b_e != list_end(&blocked_list); b_e = list_next(b_e)) {
@@ -593,8 +607,8 @@ next_thread_to_run (void)
       }
     }
 
-
-    // Get highest priority thread on ready list
+    // Get highest priority thread on ready list. Note that we iterate in the appropriate
+    // order to ensure fifo ordering for equal priority threads.
     struct list_elem *e = list_begin(&ready_list);
     struct thread *best_thread = list_entry(e, struct thread, elem);
 
@@ -605,40 +619,10 @@ next_thread_to_run (void)
       }
     }
 
+    // Remove and return this chosen thread
     list_remove(&best_thread->elem);
     return best_thread;
-
-    /*
-    struct list_elem *e = list_begin(&ready_list);
-    struct thread *best_thread = list_entry(e, struct thread, elem);
-
-    for (e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e)) {
-      struct thread *cur_thread = list_entry(e, struct thread, elem);
-      if (cur_thread->priority > best_thread->priority) {
-        best_thread = cur_thread;
-      }
-    }
-
-    for (e = list_begin(&blocked_list); e != list_end(&blocked_list); e = list_next(e)) {
-      struct thread *blocked_thread = list_entry(e, struct thread, blocked_elem);
-      if (blocked_thread->priority > best_thread->priority) {
-        best_thread = blocked_thread;
-      } 
-    }
-
-    struct thread *child = best_thread;
-    while (child->status == THREAD_BLOCKED) {
-      struct thread *next_child = child->blocked_lock->holder;
-      if (next_child->priority < child->priority) {
-        next_child->priority = child->priority; 
-      } 
-      child = next_child;
-    }
-
-    list_remove(&child->elem);
-    return child;*/
   }
-  //return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -728,20 +712,34 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+/* This function returns a reference to the list of sleeping
+   threads that is used in other files (namely synch.c). The
+   thread may access its position in this list by the sleeping_elem
+   field of the thread class */
 struct list *get_sleeping_list(void)
 {
   return &sleeping_list;
 }
 
+/* This function returns a reference to the list of blocked
+   threads that is used in other files (namely synch.c). The
+   thread may access its position in this list by the blocked_elem
+   field of the thread class */
 struct list *get_blocked_list(void)
 {
   return &blocked_list;
 }
 
+/* This function returns the highest priority value of all threads on the
+   ready list and the blocked list. Interrupts will be turned off to control
+   access to the list */
 int get_max_ready_priority (void) {
   struct list_elem *e;
   int max_priority = PRI_MIN;
 
+  int old_level = intr_disable();
+
+  // Get highest priority of ready list
   for (e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e)) {
     struct thread *cur_thread = list_entry(e, struct thread, elem);
     if (cur_thread->priority > max_priority) {
@@ -749,6 +747,7 @@ int get_max_ready_priority (void) {
     }
   }
 
+  // Get highest priority in blocked list
   for (e = list_begin(&blocked_list); e != list_end(&blocked_list); e = list_next(e)) {
     struct thread *cur_thread = list_entry(e, struct thread, blocked_elem);
     if (cur_thread->priority > max_priority) {
@@ -756,5 +755,6 @@ int get_max_ready_priority (void) {
     }
   }
 
+  intr_set_level(old_level);
   return max_priority;
 }

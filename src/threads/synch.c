@@ -114,6 +114,9 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) {
+
+    // Here, we need to make sure that we are waiting the highest priority waiter,
+    // iterating in an order that preserves fifo ordering if there are priority ties
     struct list_elem *e = list_begin(&sema->waiters);
     struct thread *best_thread = list_entry(e, struct thread, elem);
 
@@ -125,17 +128,19 @@ sema_up (struct semaphore *sema)
       }
     }
 
+    // Make sure that this thread no longer believes it is blocked on a lock,
+    // remove it from the list of waiters, and unblock it
     best_thread->blocked_lock = NULL;
     list_remove(&best_thread->elem);
     thread_unblock(best_thread);
   }
-  // thread_unblock (list_entry (list_pop_front (&sema->waiters),
-  //                               struct thread, elem));
   sema->value++;
 
+  // Check if need to yield after removing a waiter
   if (thread_current()->priority < get_max_ready_priority()) {
     thread_yield();
   }
+
   intr_set_level (old_level);
 }
 
@@ -233,6 +238,10 @@ lock_acquire (struct lock *lock)
   thread_current()->blocked_lock = lock;
   struct list *blocked_list = get_blocked_list();
 
+  // Here, we loop while trying to acquire the lock. If we fail, 
+  // we need to make sure that we add ourselves to the back of 
+  // the blocked threads list so that this may be taken into consideration
+  // by the priority donation scheduling.
   while (!lock_try_acquire(lock)) {
     list_push_back (&(lock->semaphore.waiters), &thread_current ()->elem);
     list_push_back (blocked_list, &thread_current ()->blocked_elem);
@@ -243,6 +252,8 @@ lock_acquire (struct lock *lock)
     intr_set_level(old_level);
   }
 
+  // Remove the current thread from the blocked list, if it exists in it, 
+  // after succesfully acquiring the lock
   struct list_elem *e;
   for (e = list_begin(blocked_list); e != list_end(blocked_list); e = list_next(e)) {
     struct thread *blocked_entry = list_entry(e, struct thread, blocked_elem);
@@ -251,8 +262,6 @@ lock_acquire (struct lock *lock)
       break;
     }
   }
-  
-  lock->holder = thread_current ();
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -286,16 +295,15 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  // Reset the priority of the person releasing the lock. This
+  // is done in order to counteract the priority donation that
+  // it may have been given by holding the lock. If it holds other
+  // locks, this will be re-donated in the next scheduling.
   struct thread *releaser = lock->holder;
   releaser->priority = releaser->original_priority;
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-  
-  if (releaser->priority < get_max_ready_priority()) {
-   thread_yield();
-  }
-
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -394,11 +402,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) {
-    // Get best entry from cond->waiters
+
+    // Get best thread that is waiting for a condition variable
     struct list_elem *e = list_begin(&cond->waiters);
     struct semaphore_elem *best_sema = list_entry(e, struct semaphore_elem, elem);
     int best_priority = PRI_MIN;
-
 
     for (; e != list_end(&cond->waiters); e = list_next(e)) {
       struct semaphore_elem *cur_sema = list_entry(e, struct semaphore_elem, elem);
@@ -409,11 +417,10 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
       }
     }
 
+    // Remove and return this thread
     list_remove(&best_sema->elem);
     sema_up(&best_sema->semaphore);
   }
-    //sema_up (&list_entry (list_pop_front (&cond->waiters),
-      //                    struct semaphore_elem, elem)->semaphore);
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

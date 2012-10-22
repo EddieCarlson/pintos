@@ -121,20 +121,19 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 	
-	int sleep_start;					/* When thread started sleeping */
-	int sleep_total;					/* Length of time thread must sleep */
+	  int sleep_start;					/* When thread started sleeping */
+	  int sleep_total;					/* Length of time thread must sleep */
 	
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 	
-	struct list_elem sleeping_elem;		/* Sleeping list element */
-  struct list_elem blocked_elem;
+	  struct list_elem sleeping_elem;		/* Sleeping list element */
+    struct list_elem blocked_elem;    /* Blocked list element */
 
-  struct lock *blocked_lock;
+    struct lock *blocked_lock;    /* Lock that it may be blocked on */
 
-  int original_priority;
-
-
+    int original_priority;        /* The original priority given to the thread.
+                                     For use in priority donation. */
 	
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

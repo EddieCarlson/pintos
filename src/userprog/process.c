@@ -18,15 +18,15 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
 #define MAX_ARGS 128
 
 struct arguments {
   int num_args;
   char *args[MAX_ARGS];
-}
+};
+
+static thread_func start_process NO_RETURN;
+static bool load (struct arguments *args, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -87,7 +87,7 @@ start_process (void *args_)
   success = load (args, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (args.args);
+  palloc_free_page (args->args);
   if (!success) 
     thread_exit ();
 
@@ -231,8 +231,16 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const struct arguments *args, void (**eip) (void), void **esp) 
+load (struct arguments *args, void (**eip) (void), void **esp) 
 {
+
+  // Our variables
+  void *stack_pointers[args->num_args];
+  char *top = (char *) PHYS_BASE;
+  int extra_bytes;
+  int zero = 0;
+
+
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -247,10 +255,10 @@ load (const struct arguments *args, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (args.args);
+  file = filesys_open (args->args[0]);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", args.args);
+      printf ("load: %s: open failed\n", args->args[0]);
       goto done; 
     }
 
@@ -263,7 +271,7 @@ load (const struct arguments *args, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", args.args);
+      printf ("load: %s: error loading executable\n", args->args[0]);
       goto done; 
     }
 
@@ -331,31 +339,27 @@ load (const struct arguments *args, void (**eip) (void), void **esp)
     goto done;
 
   // Make the magic happen
-  void *stack_pointers[args.num_args];
-  int i;
-  char *top = (char *) PHYS_BASE;
-  for (i = args.num_args - 1; i >= 0; i--) {
-    int total_length = strlen(args[i]) + 1;
+  for (i = args->num_args - 1; i >= 0; i--) {
+    int total_length = strlen(args->args[i]) + 1;
     char *dest = top - total_length;
-    memcpy((void *) dest, (void *) args[i], total_length);
+    memcpy((void *) dest, (void *) args->args[i], total_length);
     stack_pointers[i] = (void *) dest;
     top = dest;
   }
 
-  int extra_bytes = (4 - (top % 4)) % 4;
-  int zero = 0;
+  extra_bytes = (4 - ((uint32_t) top % 4)) % 4;
   for (i = 0; i < extra_bytes; i++) {
     memcpy(top - 1, &zero, 1);
     top--;
   }
 
   memcpy(top - 4, &zero, 4);
-  for (i = args.num_args - 1; i >= 0; i--) {
+  for (i = args->num_args - 1; i >= 0; i--) {
     memcpy(top - 4, &stack_pointers[i], 4);
     top -= 4;
   }
 
-  memcpy(top - 4, &(args.num_args), 4);
+  memcpy(top - 4, &(args->num_args), 4);
   top -= 4;
   memcpy(top - 4, &zero, 4);
   top -= 4;

@@ -16,10 +16,7 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
 	int syscall_number = *((int *) f->esp);
-	switch syscall_number{
-		case 0: 
-			
-	}
+	
   printf ("system call!\n");
   thread_exit ();
 }

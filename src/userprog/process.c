@@ -40,31 +40,23 @@ static bool load (struct arguments *args, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
   tid_t tid;
-
+	char *fn_copy;
+  
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
+     
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
-
-  struct arguments arg_struct;
-
-  char *saveptr;
-  char *delim = " ";
-  char *cur = strtok_r(fn_copy, delim, &saveptr);
-  arg_struct.num_args = 0;
-  while (cur != NULL) {
-    arg_struct.args[arg_struct.num_args] = cur;
-    arg_struct.num_args++;
-    cur = strtok_r(NULL, delim, &saveptr);
-  }
-
-
+  
+  /*
+	*/
+	
+	strlcpy(fn_copy, file_name, PGSIZE);
+	
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, &arg_struct);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -74,8 +66,20 @@ process_execute (const char *file_name)
    running. */
 static void
 start_process (void *args_)
-{
-  struct arguments *args = args_;
+{	
+	char *fn_copy = args_;
+	struct arguments args;
+
+  char *saveptr;
+  char *delim = " ";
+  char *cur = strtok_r(fn_copy, delim, &saveptr);
+  args.num_args = 0;
+  while (cur != NULL) {
+    args.args[args.num_args] = cur;
+    args.num_args++;
+    cur = strtok_r(NULL, delim, &saveptr);
+  }
+	
   struct intr_frame if_;
   bool success;
 
@@ -84,10 +88,10 @@ start_process (void *args_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (args, &if_.eip, &if_.esp);
+  success = load (&args, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (args->args);
+  palloc_free_page (args_);
   if (!success) 
     thread_exit ();
 
@@ -233,7 +237,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (struct arguments *args, void (**eip) (void), void **esp) 
 {
-
+	struct thread *t = thread_current ();
   // Our variables
   void *stack_pointers[args->num_args];
   char *top = (char *) PHYS_BASE;
@@ -241,7 +245,7 @@ load (struct arguments *args, void (**eip) (void), void **esp)
   int zero = 0;
 
 
-  struct thread *t = thread_current ();
+  
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
@@ -347,7 +351,7 @@ load (struct arguments *args, void (**eip) (void), void **esp)
     top = dest;
   }
 
-  extra_bytes = (4 - ((uint32_t) top % 4)) % 4;
+  extra_bytes = (uint32_t) top % 4;
   for (i = 0; i < extra_bytes; i++) {
     memcpy(top - 1, &zero, 1);
     top--;
@@ -358,7 +362,9 @@ load (struct arguments *args, void (**eip) (void), void **esp)
     memcpy(top - 4, &stack_pointers[i], 4);
     top -= 4;
   }
-
+	
+	memcpy(top-4, &top, 4);
+	top -= 4;
   memcpy(top - 4, &(args->num_args), 4);
   top -= 4;
   memcpy(top - 4, &zero, 4);

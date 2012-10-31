@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 
 #define MAX_ARGS 128
+#define WORD_SIZE sizeof(void *)
 
 struct arguments {
   int num_args;
@@ -117,6 +118,7 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(1);
   return -1;
 }
 
@@ -342,7 +344,8 @@ load (struct arguments *args, void (**eip) (void), void **esp)
   if (!setup_stack (esp))
     goto done;
 
-  // Make the magic happen
+  // Make the magic happen, put the parameters on the stack, storing
+  // the addresses of these locations in stack_pointers
   for (i = args->num_args - 1; i >= 0; i--) {
     int total_length = strlen(args->args[i]) + 1;
     char *dest = top - total_length;
@@ -351,24 +354,35 @@ load (struct arguments *args, void (**eip) (void), void **esp)
     top = dest;
   }
 
-  extra_bytes = (uint32_t) top % 4;
+  // Add extra bytes for word alignment
+  extra_bytes = (uint32_t) top % WORD_SIZE;
   for (i = 0; i < extra_bytes; i++) {
     memcpy(top - 1, &zero, 1);
     top--;
   }
 
-  memcpy(top - 4, &zero, 4);
+  // Push a null word, and then the addresses of the other parameters
+  memcpy(top - WORD_SIZE, &zero, WORD_SIZE);
+  top -= WORD_SIZE;
+  
   for (i = args->num_args - 1; i >= 0; i--) {
-    memcpy(top - 4, &stack_pointers[i], 4);
-    top -= 4;
+    memcpy(top - WORD_SIZE, &stack_pointers[i], WORD_SIZE);
+    top -= WORD_SIZE;
   }
-	
-	memcpy(top-4, &top, 4);
-	top -= 4;
-  memcpy(top - 4, &(args->num_args), 4);
-  top -= 4;
-  memcpy(top - 4, &zero, 4);
-  top -= 4;
+  
+  // Push a pointer to the first address
+  memcpy(top - WORD_SIZE, &top, WORD_SIZE);
+  top -= WORD_SIZE;
+
+  // Push the number of arguments
+  memcpy(top - WORD_SIZE, &(args->num_args), WORD_SIZE);
+  top -= WORD_SIZE;
+
+  // Push a null return address
+  memcpy(top - WORD_SIZE, &zero, WORD_SIZE);
+  top -= WORD_SIZE;
+
+  // Point the stack pointer
   *esp = (void *) top;
 
   /* Start address. */

@@ -11,6 +11,7 @@
 
 #define WORD_SIZE sizeof(void *)
 #define SUPPORTED_ARGS 3
+#define MAX_WRITE_STDOUT_SIZE 128
 
 struct arguments {
   void *args[SUPPORTED_ARGS];
@@ -31,14 +32,14 @@ static void sys_wait_handler(struct arguments *args);
 static int sys_open_handler(struct arguments *args);
 static void sys_tell_handler(struct arguments *args);
 static void sys_close_handler(struct arguments *args);
-static void sys_filesize_handler(struct arguments *args);
+static uint32_t sys_filesize_handler(struct arguments *args);
 
 // 2 argument sys_calls
 static void sys_dup2_handler(struct arguments *args);
 
 // 3 argument sys_calls
 static void sys_read_handler(struct arguments *args);
-static void sys_write_handler(struct arguments *args);
+static uint32_t sys_write_handler(struct arguments *args);
 
 void
 syscall_init (void) 
@@ -61,6 +62,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_fork_handler();
       break;
     case SYS_EXIT:
+      thread_exit();
       sys_exit_handler(&args);
       break;
     case SYS_PIPE:
@@ -82,7 +84,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_close_handler(&args);
       break;
     case SYS_FILESIZE:
-      sys_filesize_handler(&args);
+      f->eax = sys_filesize_handler(&args);
       break;
     case SYS_DUP2:
       sys_dup2_handler(&args);
@@ -91,12 +93,11 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_read_handler(&args);
       break;
     case SYS_WRITE:
-      sys_write_handler(&args);
+      f->eax = sys_write_handler(&args);
       break;
-    default:
-      printf("OH NO!!");
   }
-  thread_exit ();
+
+  //asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (f) : "memory");
 }
 
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args) {
@@ -109,23 +110,29 @@ static void populate_arg_struct(struct intr_frame *f, struct arguments *args, in
 static void sys_halt_handler(void) {
   shutdown_power_off();
 }
+
 static void sys_fork_handler(void) {
 
 }
+
 static void sys_exit_handler(struct arguments *args) {
 
 }
+
 static void sys_pipe_handler(struct arguments *args) {
 
 }
+
 static void sys_exec_handler(struct arguments *args) {
 
 }
+
 static void sys_wait_handler(struct arguments *args) {
 
 }
+
 static int sys_open_handler(struct arguments *args) {
-  char *file_name = (char *) args->args[0];
+  char *file_name = *((char **) args->args[0]);
   struct file *f = filesys_open(file_name);
 
   if (f == NULL) {
@@ -142,12 +149,14 @@ static int sys_open_handler(struct arguments *args) {
   list_push_back(&cur_thread->fd_list, &file_desc->fd_elem);
   return file_desc->fd;
 }
+
 static void sys_tell_handler(struct arguments *args) {
 
 }
-static void sys_close_handler(struct arguments *args) {
 
-  int fd = (int) args->args[0];
+static void sys_close_handler(struct arguments *args) {
+  int fd = ((int *) args->args[0]);
+
   struct thread *cur_thread = thread_current();
   struct list_elem *e;
   for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
@@ -167,9 +176,9 @@ static void sys_close_handler(struct arguments *args) {
     }
   }
 }
-static void sys_filesize_handler(struct arguments *args) {
-  int fd = (int) args->args[0];
-  
+static uint32_t sys_filesize_handler(struct arguments *args) {
+  int fd = *((int *) args->args[0]);
+
   struct thread *cur_thread = thread_current();
   struct list_elem *e;
   for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
@@ -177,7 +186,6 @@ static void sys_filesize_handler(struct arguments *args) {
     if (file_desc->fd == fd) {
       if (file_desc->buf == NULL) {
         return file_length(file_desc->f);
-
       }
       break; 
     }
@@ -191,6 +199,32 @@ static void sys_dup2_handler(struct arguments *args) {
 static void sys_read_handler(struct arguments *args) {
 
 }
-static void sys_write_handler(struct arguments *args) {
+static uint32_t sys_write_handler(struct arguments *args) {
+  int fd = *((int *) args->args[0]);
+  void *buf = *((void **) args->args[1]);
+  uint32_t size = *((uint32_t *) args->args[2]);
 
+  if (fd == 1) {
+    if (size > MAX_WRITE_STDOUT_SIZE) {
+      putbuf((char *) buf, MAX_WRITE_STDOUT_SIZE);
+      return MAX_WRITE_STDOUT_SIZE;
+    } else {
+      putbuf((char *) buf, size);
+      return size;
+    }
+  }
+
+  struct thread *cur_thread = thread_current();
+  struct list_elem *e;
+  for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
+    struct fd *file_desc = list_entry (e, struct fd, fd_elem);
+    if (file_desc->fd == fd) {
+      if (file_desc->buf == NULL && !(file_desc->f->deny_write)) {
+        return (uint32_t) file_write(file_desc->f, buf, size);
+      }
+      break; 
+    }
+  }
+
+  return 0;
 }

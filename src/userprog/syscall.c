@@ -168,7 +168,22 @@ static void sys_close_handler(struct arguments *args) {
   }
 }
 static void sys_filesize_handler(struct arguments *args) {
+  int fd = (int) args->args[0];
+  
+  struct thread *cur_thread = thread_current();
+  struct list_elem *e;
+  for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
+    struct fd *file_desc = list_entry (e, struct fd, fd_elem);
+    if (file_desc->fd == fd) {
+      if (file_desc->buf == NULL) {
+        return file_length(file_desc->f);
 
+      }
+      break; 
+    }
+  }
+
+  return 0;
 }
 static void sys_dup2_handler(struct arguments *args) {
 

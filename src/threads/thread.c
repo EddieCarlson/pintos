@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -231,6 +232,12 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  // Initialize information for USERPROG threads
+#ifdef USERPROG
+  t->next_fd = 3;
+  list_init(&t->fd_list);
+#endif
 
   /* Add to run queue. */
   thread_unblock (t);

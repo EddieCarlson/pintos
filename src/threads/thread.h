@@ -138,6 +138,8 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    uint32_t next_fd;
+    struct list fd_list;
 #endif
 
     /* Owned by thread.c. */

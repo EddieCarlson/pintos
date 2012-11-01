@@ -2,10 +2,14 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <list.h>
+#include <string.h>
+#include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "filesys/filesys.h"
+#include "userprog/pagedir.h"
 #include "threads/malloc.h"
+#include "threads/vaddr.h"
 #include "filesys/file.h"
 #include "devices/shutdown.h"
 
@@ -16,30 +20,31 @@
 struct arguments {
   void *args[SUPPORTED_ARGS];
 };
+static thread_func build_fork NO_RETURN;
 
 static void syscall_handler (struct intr_frame *);
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args);
 
 // 0 argument sys_calls
-static void sys_halt_handler(void);
-static void sys_fork_handler(void);
+static void sys_halt_handler(void); //
+static tid_t sys_fork_handler(void);
 
 // 1 argument sys_calls
-static void sys_exit_handler(struct arguments *args);
-static void sys_pipe_handler(struct arguments *args);
+static void sys_exit_handler(struct arguments *args); //?
+static void sys_pipe_handler(struct arguments *args); 
 static void sys_exec_handler(struct arguments *args);
-static void sys_wait_handler(struct arguments *args);
-static int sys_open_handler(struct arguments *args);
-static void sys_tell_handler(struct arguments *args);
-static void sys_close_handler(struct arguments *args);
-static uint32_t sys_filesize_handler(struct arguments *args);
+static int sys_wait_handler(struct arguments *args); ///?
+static int sys_open_handler(struct arguments *args); ///?
+static void sys_tell_handler(struct arguments *args); 
+static void sys_close_handler(struct arguments *args); ///?
+static uint32_t sys_filesize_handler(struct arguments *args); ///?
 
 // 2 argument sys_calls
 static void sys_dup2_handler(struct arguments *args);
 
 // 3 argument sys_calls
 static void sys_read_handler(struct arguments *args);
-static uint32_t sys_write_handler(struct arguments *args);
+static uint32_t sys_write_handler(struct arguments *args); ///?
 
 void
 syscall_init (void) 
@@ -59,10 +64,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_halt_handler();
       break;
     case SYS_FORK:
-      sys_fork_handler();
+      f->eax = sys_fork_handler();
       break;
     case SYS_EXIT:
-      thread_exit();
       sys_exit_handler(&args);
       break;
     case SYS_PIPE:
@@ -72,7 +76,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_exec_handler(&args);
       break;
     case SYS_WAIT:
-      sys_wait_handler(&args);
+      f->eax = sys_wait_handler(&args);
       break;
     case SYS_OPEN:
       f->eax = sys_open_handler(&args);
@@ -96,8 +100,6 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_write_handler(&args);
       break;
   }
-
-  //asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (f) : "memory");
 }
 
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args) {
@@ -111,12 +113,45 @@ static void sys_halt_handler(void) {
   shutdown_power_off();
 }
 
-static void sys_fork_handler(void) {
+static void build_fork(void *args_) {
+  struct fork_args *args = (struct fork_args *) args_;
+  struct thread *cur = thread_current();
 
+  cur->pagedir = args->pagedir;
+
+  process_activate();
+
+  uint32_t *parent_stack = args->parent_stack;
+
+  free(args);
+
+  asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (parent_stack) : "memory");
+  NOT_REACHED();
+}
+
+static tid_t sys_fork_handler(void) {
+  struct thread *cur = thread_current();
+  struct fork_args args;
+  args.parent_stack = (uint32_t *) cur->stack;
+
+  uint32_t *new_pagedir = pagedir_create();
+
+  pagedir_activate(new_pagedir);
+
+  memcpy(pagedir_get_page(new_pagedir,(void *) 0x08084000), 
+      pagedir_get_page(cur->pagedir,(void *) 0x08084000), (size_t) (PHYS_BASE - 0x08084000));
+
+  args.pagedir = new_pagedir;
+  tid_t child_tid = (tid_t) thread_create(cur->name, cur->priority, &build_fork, &args);
+  return child_tid;
 }
 
 static void sys_exit_handler(struct arguments *args) {
+  int status = *((int *) args->args[0]);
+  printf("%s: exit(%d)\n", thread_current()->name, status);
 
+  // Need to still return the status to the kernel parent thread...
+  thread_exit();
 }
 
 static void sys_pipe_handler(struct arguments *args) {
@@ -127,8 +162,9 @@ static void sys_exec_handler(struct arguments *args) {
 
 }
 
-static void sys_wait_handler(struct arguments *args) {
-
+static int sys_wait_handler(struct arguments *args) {
+  tid_t status = *((tid_t *) args->args[0]);
+  return process_wait(status);
 }
 
 static int sys_open_handler(struct arguments *args) {
@@ -155,7 +191,7 @@ static void sys_tell_handler(struct arguments *args) {
 }
 
 static void sys_close_handler(struct arguments *args) {
-  int fd = ((int *) args->args[0]);
+  int fd = *((int *) args->args[0]);
 
   struct thread *cur_thread = thread_current();
   struct list_elem *e;

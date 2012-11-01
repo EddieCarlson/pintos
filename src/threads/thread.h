@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 
 /* States in a thread's life cycle. */
@@ -111,6 +112,15 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
+/* Info struct for children processes */
+struct child_thread_info {
+  bool dead;
+  tid_t tid;
+  int status;
+  struct list_elem waiting_list_elem;
+};
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -140,7 +150,14 @@ struct thread
     uint32_t *pagedir;                  /* Page directory. */
     uint32_t next_fd;
     struct list fd_list;
+
+    struct thread *parent_thread;
 #endif
+
+    // For managing child processes in wait and fork
+    struct list child_list;
+    struct condition waiting_for_child;
+    struct lock waiting_child_lock;
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

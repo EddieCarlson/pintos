@@ -21,6 +21,11 @@ struct fd_buffer {
   int last;
 };
 
+struct fork_args {
+  uint32_t *pagedir;
+  uint32_t *parent_stack;
+};
+
 void syscall_init (void);
 
 #endif /* userprog/syscall.h */

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <list.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -17,6 +18,8 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
+#include "threads/malloc.h"
 
 #define MAX_ARGS 128
 #define WORD_SIZE sizeof(void *)
@@ -56,8 +59,21 @@ process_execute (const char *file_name)
 	
 	strlcpy(fn_copy, file_name, PGSIZE);
 	
+  //Parse file name from passed file name
+  char *saveptr;
+  char *cur = strtok_r(file_name, " ", &saveptr);
+
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (cur, PRI_DEFAULT, start_process, fn_copy);
+
+  // It is now a child of the current thread
+  struct child_thread_info *child = malloc(sizeof(struct child_thread_info));
+  child->status = -1; // This is the default value, we're very pessimistic..
+  child->tid = tid;
+  child->dead = false; // It's not stillborn
+  list_push_back(&(thread_current()->child_list), &(child->waiting_list_elem));
+
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -118,8 +134,38 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(1);
-  return -1;
+  struct thread *cur_thread = thread_current();
+  lock_acquire(&(cur_thread->waiting_child_lock));
+  struct list_elem *e;
+  bool found = false;
+  struct child_thread_info *child;
+  int returned_status;
+
+  // Find child
+  for (e = list_begin(&cur_thread->child_list); e != list_end(&cur_thread->child_list); e = list_next(e)) {
+    child = list_entry(e, struct child_thread_info, waiting_list_elem);
+    if (child->tid == child_tid) {
+      found = true;
+      break;
+    }
+  }
+
+  // No child, or already seen it
+  if (!found) {
+    return -1;
+  }
+
+  while (!child->dead) {
+    cond_wait(&cur_thread->waiting_for_child, &cur_thread->waiting_child_lock);
+  }
+  list_remove(&(child->waiting_list_elem));
+
+  returned_status = child->status;
+  free(child);
+
+  lock_release(&(cur_thread->waiting_child_lock));
+
+  return returned_status;
 }
 
 /* Free the current process's resources. */
@@ -127,8 +173,23 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct thread *parent = cur->parent_thread;
   uint32_t *pd;
 
+  if(parent != NULL){
+
+    lock_acquire(&(parent->waiting_child_lock));
+    struct list_elem *e;
+    for (e = list_begin(&parent->child_list); e != list_end(&parent->child_list); e = list_next(e)) {
+      struct child_thread_info *child = list_entry(e, struct child_thread_info, waiting_list_elem);
+      if (child->tid == cur->tid) {
+        child->dead = true;
+        break;
+      }
+    }
+    cond_signal(&(parent->waiting_for_child), &(parent->waiting_child_lock));
+    lock_release(&(parent->waiting_child_lock));
+  }
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

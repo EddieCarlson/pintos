@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #include "threads/init.h"
 #include "threads/pte.h"
 #include "threads/palloc.h"
@@ -125,6 +126,9 @@ pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
 void *
 pagedir_get_page (uint32_t *pd, const void *uaddr) 
 {
+  printf("%p\n", pd);
+  printf("%p\n\n", uaddr);
+
   uint32_t *pte;
 
   ASSERT (is_user_vaddr (uaddr));

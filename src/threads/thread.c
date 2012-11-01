@@ -115,11 +115,17 @@ thread_init (void)
   list_init (&sleeping_list);
   list_init (&blocked_list);
 
+
+
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  list_init(&thread_current()->child_list);
+  cond_init(&thread_current()->waiting_for_child);
+  lock_init(&thread_current()->waiting_child_lock);
 }
 
 /* tom: This routine needs to create the idle thread so that
@@ -237,7 +243,12 @@ thread_create (const char *name, int priority,
 #ifdef USERPROG
   t->next_fd = 3;
   list_init(&t->fd_list);
+  t->parent_thread = thread_current();
 #endif
+
+  list_init(&t->child_list);
+  cond_init(&t->waiting_for_child);
+  lock_init(&t->waiting_child_lock);
 
   /* Add to run queue. */
   thread_unblock (t);

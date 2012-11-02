@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <stdbool.h>
 #include <list.h>
 #include <string.h>
 #include "userprog/process.h"
@@ -23,6 +24,8 @@ struct arguments {
   void *args[SUPPORTED_ARGS];
 };
 static thread_func build_fork NO_RETURN;
+
+static bool validate_ptr(void * ptr);
 
 static void syscall_handler (struct intr_frame *);
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args);
@@ -58,6 +61,13 @@ static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
   int old_level = intr_disable();
+  if(!(validate_ptr(f->esp))){
+    struct arguments bad_args;
+    int i = -1;
+    bad_args.args[0] = (void *) &i;
+    sys_exit_handler(&bad_args);
+  }
+
   int syscall_number = *((int *) f->esp);
   struct arguments args;
   populate_arg_struct(f, &args, SUPPORTED_ARGS);
@@ -106,10 +116,27 @@ syscall_handler (struct intr_frame *f UNUSED)
   intr_set_level(old_level);
 }
 
+static bool validate_ptr(void * ptr){
+  if (!(is_user_vaddr(ptr)))
+    return false;
+
+  if( ptr < PHYS_BASE - PGSIZE)
+    return false;
+}
+
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args) {
   int i;
   for (i = 1; i <= num_args; i++) {
-    args->args[i - 1] = f->esp + WORD_SIZE * i;
+    void *next_ptr = f->esp + WORD_SIZE * i;
+    if(!(validate_ptr(next_ptr))){
+      struct arguments bad_args;
+      int i = -1;
+      bad_args.args[0] = (void *) &i;
+      f->eax = -1;
+      sys_exit_handler(&bad_args);
+    } else{
+      args->args[i - 1] = next_ptr;
+    }
   }
 }
 
@@ -246,7 +273,13 @@ static int sys_wait_handler(struct arguments *args) {
 
 static int sys_open_handler(struct arguments *args) {
   char *file_name = *((char **) args->args[0]);
+
+  if(file_name == NULL)
+    return -1;
+
+  enum intr_level old_level = intr_enable ();
   struct file *f = filesys_open(file_name);
+  intr_set_level (old_level);
 
   if (f == NULL) {
     return -1;

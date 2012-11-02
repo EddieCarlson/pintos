@@ -185,6 +185,14 @@ process_exit (void)
   struct thread *cur = thread_current ();
   thread_foreach(&mark_dead, (void *) 0);
 
+  struct list_elem *child_e;
+  for (child_e = list_begin(&parent->child_list); child_e != list_end(&parent->child_list); child_e = list_next(child_e)) {
+    struct child_thread_info *c = list_entry(child_e, struct child_thread_info, waiting_list_elem);
+    if (!c->dead) {
+      process_wait(c->tid);
+    }
+  }
+
   struct thread *parent = cur->parent_thread;
   uint32_t *pd;
 

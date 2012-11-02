@@ -123,6 +123,7 @@ static void build_fork(void *args_) {
 
   struct intr_frame i_f;
   memcpy(&i_f, &cur->i_f, sizeof(struct intr_frame));
+  i_f.eax = 0;
 
   lock_release(&cur->parent_thread->forking_child_lock);
 
@@ -145,11 +146,13 @@ static void populate_child(struct thread *child, void *args_) {
     child->pagedir = args->pagedir;
     memcpy(&child->i_f, args->i_f, sizeof(struct intr_frame));
 
-    struct child_thread_info *child = malloc(sizeof(struct child_thread_info));
-    child->status = -1; // This is the default value, we're very pessimistic..
-    child->tid = args->child_tid;
-    child->dead = false; // It's not stillborn
-    list_push_back(&(cur->child_list), &(child->waiting_list_elem));
+    struct child_thread_info *child_info = malloc(sizeof(struct child_thread_info));
+    child_info->status = -1; // This is the default value, we're very pessimistic..
+    child_info->tid = args->child_tid;
+    child_info->dead = false; // It's not stillborn
+    list_push_back(&(cur->child_list), &(child_info->waiting_list_elem));
+
+    memcpy(&child->name, &cur->name, 16);
   }
 }
 

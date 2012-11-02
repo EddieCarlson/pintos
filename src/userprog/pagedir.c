@@ -126,9 +126,6 @@ pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
 void *
 pagedir_get_page (uint32_t *pd, const void *uaddr) 
 {
-  printf("%p\n", pd);
-  printf("%p\n\n", uaddr);
-
   uint32_t *pte;
 
   ASSERT (is_user_vaddr (uaddr));

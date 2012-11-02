@@ -12,6 +12,8 @@
 #include "threads/vaddr.h"
 #include "filesys/file.h"
 #include "devices/shutdown.h"
+#include "threads/palloc.h"
+#include "threads/pte.h"
 
 #define WORD_SIZE sizeof(void *)
 #define SUPPORTED_ARGS 3
@@ -27,7 +29,7 @@ static void populate_arg_struct(struct intr_frame *f, struct arguments *args, in
 
 // 0 argument sys_calls
 static void sys_halt_handler(void); //
-static tid_t sys_fork_handler(void);
+static tid_t sys_fork_handler(struct intr_frame *f);
 
 // 1 argument sys_calls
 static void sys_exit_handler(struct arguments *args); //?
@@ -64,7 +66,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_halt_handler();
       break;
     case SYS_FORK:
-      f->eax = sys_fork_handler();
+      f->eax = sys_fork_handler(f);
       break;
     case SYS_EXIT:
       sys_exit_handler(&args);
@@ -114,35 +116,100 @@ static void sys_halt_handler(void) {
 }
 
 static void build_fork(void *args_) {
-  struct fork_args *args = (struct fork_args *) args_;
   struct thread *cur = thread_current();
-
-  cur->pagedir = args->pagedir;
+  lock_acquire(&cur->parent_thread->forking_child_lock);
 
   process_activate();
 
-  uint32_t *parent_stack = args->parent_stack;
+  struct intr_frame i_f;
+  memcpy(&i_f, &cur->i_f, sizeof(struct intr_frame));
 
-  free(args);
+  lock_release(&cur->parent_thread->forking_child_lock);
 
-  asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (parent_stack) : "memory");
+  asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&i_f) : "memory");
   NOT_REACHED();
 }
 
-static tid_t sys_fork_handler(void) {
+struct populate_child_args {
+  uint32_t *pagedir;
+  struct intr_frame *i_f;
+  tid_t child_tid;
+};
+
+static thread_action_func populate_child;
+
+static void populate_child(struct thread *child, void *args_) {
+  struct populate_child_args *args = (struct populate_child_args *) args_;
+  struct thread *cur = thread_current();
+  if (child->tid == args->child_tid) {
+    child->pagedir = args->pagedir;
+    memcpy(&child->i_f, args->i_f, sizeof(struct intr_frame));
+
+    struct child_thread_info *child = malloc(sizeof(struct child_thread_info));
+    child->status = -1; // This is the default value, we're very pessimistic..
+    child->tid = args->child_tid;
+    child->dead = false; // It's not stillborn
+    list_push_back(&(cur->child_list), &(child->waiting_list_elem));
+  }
+}
+
+static tid_t sys_fork_handler(struct intr_frame *f) {
   struct thread *cur = thread_current();
   struct fork_args args;
   args.parent_stack = (uint32_t *) cur->stack;
 
   uint32_t *new_pagedir = pagedir_create();
+  uint32_t *pde;
 
-  pagedir_activate(new_pagedir);
+  for (pde = cur->pagedir; pde < cur->pagedir + pd_no (PHYS_BASE); pde++) {
+    if (*pde & PTE_P) {
 
-  memcpy(pagedir_get_page(new_pagedir,(void *) 0x08084000), 
-      pagedir_get_page(cur->pagedir,(void *) 0x08084000), (size_t) (PHYS_BASE - 0x08084000));
+        uint32_t *pt = pde_get_pt (*pde);
+        uint32_t *pte;
+        
+        for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++) {
+          if (*pte & PTE_P) {
+            void *goody = pti_pdi_get_base((uint32_t) (pte - pt), (uint32_t) (pde - cur->pagedir));
+            
+            void *new_page = palloc_get_page(PAL_USER);
+            void *parent_page = pte_get_page(*pte);
+            memcpy(new_page, parent_page, PGSIZE);
+            pagedir_set_page(new_pagedir, goody, new_page, true);
+          }   
+        }
+    }
+  }
 
-  args.pagedir = new_pagedir;
+  lock_acquire(&cur->forking_child_lock);
   tid_t child_tid = (tid_t) thread_create(cur->name, cur->priority, &build_fork, &args);
+
+  struct populate_child_args child_args;
+  child_args.pagedir = new_pagedir;
+  child_args.i_f = f;
+  child_args.child_tid = child_tid;
+
+  enum intr_level old_level = intr_disable ();
+  thread_foreach(&populate_child, &child_args);
+  intr_set_level (old_level);
+  // struct list_elem *e;
+  // for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e)) {
+  //     struct thread *child = list_entry (e, struct thread, allelem);
+  //     printf("%s\n", child->name);
+  //     if (child->tid == child_tid) {
+  //       child->pagedir = new_pagedir;
+  //       memcpy(&child->i_f, f, sizeof(struct intr_frame));
+
+  //       struct child_thread_info *child = malloc(sizeof(struct child_thread_info));
+  //       child->status = -1; // This is the default value, we're very pessimistic..
+  //       child->tid = child_tid;
+  //       child->dead = false; // It's not stillborn
+  //       list_push_back(&(cur->child_list), &(child->waiting_list_elem));
+
+  //       break;
+  //     }
+  // }
+
+  lock_release(&cur->forking_child_lock);
   return child_tid;
 }
 

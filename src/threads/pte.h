@@ -103,5 +103,11 @@ static inline void *pte_get_page (uint32_t pte) {
   return ptov (pte & PTE_ADDR);
 }
 
+static inline void *pti_pdi_get_base(uint32_t pti, uint32_t pdi) {
+  pdi = pdi << PDSHIFT;
+  pti = pti << PTSHIFT;
+  return (void *) (pdi + pti);
+}
+
 #endif /* threads/pte.h */
 

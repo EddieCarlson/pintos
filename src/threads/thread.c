@@ -244,6 +244,7 @@ thread_create (const char *name, int priority,
   t->next_fd = 3;
   list_init(&t->fd_list);
   t->parent_thread = thread_current();
+  lock_init(&t->forking_child_lock);
 #endif
 
   list_init(&t->child_list);

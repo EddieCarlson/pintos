@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include "threads/interrupt.h"
 
 
 /* States in a thread's life cycle. */
@@ -152,6 +153,8 @@ struct thread
     struct list fd_list;
 
     struct thread *parent_thread;
+    struct lock forking_child_lock;
+    struct intr_frame i_f;
 #endif
 
     // For managing child processes in wait and fork

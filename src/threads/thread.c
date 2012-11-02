@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -114,8 +115,6 @@ thread_init (void)
   list_init (&all_list);
   list_init (&sleeping_list);
   list_init (&blocked_list);
-
-
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -245,6 +244,9 @@ thread_create (const char *name, int priority,
   list_init(&t->fd_list);
   t->parent_thread = thread_current();
   lock_init(&t->forking_child_lock);
+  cond_init(&t->forking_child_cond);
+  bool ready = false;
+  bool userprog = true;
 #endif
 
   list_init(&t->child_list);
@@ -352,6 +354,8 @@ thread_exit (void)
 {
   ASSERT (!intr_context ());
 
+  intr_disable ();
+
 #ifdef USERPROG
   process_exit ();
 #endif
@@ -359,7 +363,7 @@ thread_exit (void)
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
-  intr_disable ();
+  
   list_remove (&thread_current()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();

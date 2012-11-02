@@ -145,7 +145,7 @@ struct thread
 
     int original_priority;        /* The original priority given to the thread.
                                      For use in priority donation. */
-	
+    bool user_prog;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -154,6 +154,8 @@ struct thread
 
     struct thread *parent_thread;
     struct lock forking_child_lock;
+    struct condition forking_child_cond;
+    bool ready;
     struct intr_frame i_f;
 #endif
 

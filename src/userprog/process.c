@@ -168,16 +168,27 @@ process_wait (tid_t child_tid UNUSED)
   return returned_status;
 }
 
+static thread_action_func mark_dead;
+
+static void mark_dead(struct thread *child, void *args_) {
+  struct thread *cur = thread_current();
+
+  if (child->parent_thread == cur) {
+    child->parent_thread = NULL;
+  }
+}
+
 /* Free the current process's resources. */
 void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  thread_foreach(&mark_dead, (void *) 0);
+
   struct thread *parent = cur->parent_thread;
   uint32_t *pd;
 
-  if(parent != NULL){
-
+  if(parent != NULL) {
     lock_acquire(&(parent->waiting_child_lock));
     struct list_elem *e;
     for (e = list_begin(&parent->child_list); e != list_end(&parent->child_list); e = list_next(e)) {
@@ -190,6 +201,7 @@ process_exit (void)
     cond_signal(&(parent->waiting_for_child), &(parent->waiting_child_lock));
     lock_release(&(parent->waiting_child_lock));
   }
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

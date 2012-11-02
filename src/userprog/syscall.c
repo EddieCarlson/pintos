@@ -57,6 +57,7 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  int old_level = intr_disable();
   int syscall_number = *((int *) f->esp);
   struct arguments args;
   populate_arg_struct(f, &args, SUPPORTED_ARGS);
@@ -102,6 +103,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_write_handler(&args);
       break;
   }
+  intr_set_level(old_level);
 }
 
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args) {
@@ -117,15 +119,18 @@ static void sys_halt_handler(void) {
 
 static void build_fork(void *args_) {
   struct thread *cur = thread_current();
-  lock_acquire(&cur->parent_thread->forking_child_lock);
+
+  lock_acquire(&cur->forking_child_lock);
+  while (!cur->ready) {
+    cond_wait(&cur->forking_child_cond, &cur->forking_child_lock);
+  }
+  lock_release(&cur->forking_child_lock);
 
   process_activate();
 
   struct intr_frame i_f;
   memcpy(&i_f, &cur->i_f, sizeof(struct intr_frame));
   i_f.eax = 0;
-
-  lock_release(&cur->parent_thread->forking_child_lock);
 
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&i_f) : "memory");
   NOT_REACHED();
@@ -153,6 +158,12 @@ static void populate_child(struct thread *child, void *args_) {
     list_push_back(&(cur->child_list), &(child_info->waiting_list_elem));
 
     memcpy(&child->name, &cur->name, 16);
+
+    // Wake the child if need be
+    lock_acquire(&child->forking_child_lock);
+    child->ready = true;
+    cond_signal(&child->forking_child_cond, &child->forking_child_lock);
+    lock_release(&child->forking_child_lock);
   }
 }
 
@@ -182,8 +193,6 @@ static tid_t sys_fork_handler(struct intr_frame *f) {
         }
     }
   }
-
-  lock_acquire(&cur->forking_child_lock);
   tid_t child_tid = (tid_t) thread_create(cur->name, cur->priority, &build_fork, &args);
 
   struct populate_child_args child_args;
@@ -211,8 +220,6 @@ static tid_t sys_fork_handler(struct intr_frame *f) {
   //       break;
   //     }
   // }
-
-  lock_release(&cur->forking_child_lock);
   return child_tid;
 }
 

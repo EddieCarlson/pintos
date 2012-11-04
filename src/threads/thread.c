@@ -245,7 +245,7 @@ thread_create (const char *name, int priority,
   t->parent_thread = thread_current();
   lock_init(&t->forking_child_lock);
   cond_init(&t->forking_child_cond);
-  bool ready = false;
+  t->ready = false;
   bool userprog = true;
 #endif
 

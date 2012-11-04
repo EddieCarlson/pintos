@@ -12,6 +12,7 @@ struct fd {
   struct file *f;
   struct list_elem fd_elem;
   struct fd_buffer *buf;
+  struct fd *dup;
 };
 
 struct fd_buffer {

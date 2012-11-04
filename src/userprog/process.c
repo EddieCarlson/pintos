@@ -79,6 +79,7 @@ process_execute (const char *file_name)
   return tid;
 }
 
+
 /* A thread function that loads a user process and starts it
    running. */
 static void
@@ -120,6 +121,10 @@ start_process (void *args_)
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
+}
+
+void exec_start(void *args_){
+  start_process(args_);
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -184,16 +189,17 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   thread_foreach(&mark_dead, (void *) 0);
-
-  struct list_elem *child_e;
-  for (child_e = list_begin(&parent->child_list); child_e != list_end(&parent->child_list); child_e = list_next(child_e)) {
-    struct child_thread_info *c = list_entry(child_e, struct child_thread_info, waiting_list_elem);
-    if (!c->dead) {
-      process_wait(c->tid);
-    }
-  }
-
   struct thread *parent = cur->parent_thread;
+
+
+  // struct list_elem *child_e;
+  // for (child_e = list_begin(&parent->child_list); child_e != list_end(&parent->child_list); child_e = list_next(child_e)) {
+  //   struct child_thread_info *c = list_entry(child_e, struct child_thread_info, waiting_list_elem);
+  //   if (!c->dead) {
+  //     process_wait(c->tid);
+  //   }
+  // }
+
   uint32_t *pd;
 
   if(parent != NULL) {

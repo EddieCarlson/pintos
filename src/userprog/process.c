@@ -98,6 +98,9 @@ start_process (void *args_)
     cur = strtok_r(NULL, delim, &saveptr);
   }
 	
+  memset(thread_current()->name, 0, 16);
+  memcpy(thread_current()->name, fn_copy, 16);
+
   struct intr_frame if_;
   bool success;
 
@@ -124,6 +127,7 @@ start_process (void *args_)
 }
 
 void exec_start(void *args_){
+
   start_process(args_);
 }
 
@@ -191,15 +195,6 @@ process_exit (void)
   thread_foreach(&mark_dead, (void *) 0);
   struct thread *parent = cur->parent_thread;
 
-
-  // struct list_elem *child_e;
-  // for (child_e = list_begin(&parent->child_list); child_e != list_end(&parent->child_list); child_e = list_next(child_e)) {
-  //   struct child_thread_info *c = list_entry(child_e, struct child_thread_info, waiting_list_elem);
-  //   if (!c->dead) {
-  //     process_wait(c->tid);
-  //   }
-  // }
-
   uint32_t *pd;
 
   if(parent != NULL) {
@@ -209,6 +204,7 @@ process_exit (void)
       struct child_thread_info *child = list_entry(e, struct child_thread_info, waiting_list_elem);
       if (child->tid == cur->tid) {
         child->dead = true;
+        child->status = cur->exit_status;
         break;
       }
     }

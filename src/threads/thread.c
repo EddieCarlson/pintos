@@ -238,6 +238,8 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  //bool userprog = false;
+
   // Initialize information for USERPROG threads
 #ifdef USERPROG
   t->next_fd = 3;
@@ -246,12 +248,13 @@ thread_create (const char *name, int priority,
   lock_init(&t->forking_child_lock);
   cond_init(&t->forking_child_cond);
   t->ready = false;
-  bool userprog = true;
+  //t->userprog = true;
 #endif
 
   list_init(&t->child_list);
   cond_init(&t->waiting_for_child);
   lock_init(&t->waiting_child_lock);
+  t->exit_status = -1;
 
   /* Add to run queue. */
   thread_unblock (t);

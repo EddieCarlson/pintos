@@ -16,6 +16,7 @@
 #include "devices/input.h"
 #include "threads/palloc.h"
 #include "threads/pte.h"
+#include "threads/synch.h"
 
 #define WORD_SIZE sizeof(void *)
 #define SUPPORTED_ARGS 3
@@ -37,7 +38,7 @@ static tid_t sys_fork_handler(struct intr_frame *f);
 
 // 1 argument sys_calls
 static void sys_exit_handler(struct arguments *args); //?
-static void sys_pipe_handler(struct arguments *args); 
+static int sys_pipe_handler(struct arguments *args); 
 static void sys_exec_handler(struct arguments *args);
 static int sys_wait_handler(struct arguments *args); ///?
 static int sys_open_handler(struct arguments *args); ///?
@@ -46,15 +47,13 @@ static void sys_close_handler(struct arguments *args); ///?
 static uint32_t sys_filesize_handler(struct arguments *args); ///?
 
 // 2 argument sys_calls
-static void sys_dup2_handler(struct arguments *args);
+static int sys_dup2_handler(struct arguments *args);
 
 // 3 argument sys_calls
 static int sys_read_handler(struct arguments *args);
 static uint32_t sys_write_handler(struct arguments *args); ///?
 
-static void exit_fail(struct intr_frame *f);
 static bool validate_ptr(void * ptr);
-static bool validate_arg(void *ptr, int psize);
 
 void
 syscall_init (void) 
@@ -65,7 +64,6 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  //int old_level = intr_disable();
   if(!(validate_ptr(f->esp))){
     struct arguments bad_args;
     int i = -1;
@@ -88,7 +86,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       sys_exit_handler(&args);
       break;
     case SYS_PIPE:
-      sys_pipe_handler(&args);
+      f->eax = sys_pipe_handler(&args);
       break;
     case SYS_EXEC:
       sys_exec_handler(&args);
@@ -113,19 +111,26 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_filesize_handler(&args);
       break;
     case SYS_DUP2:
-      sys_dup2_handler(&args);
+      f->eax = sys_dup2_handler(&args);
       break;
     case SYS_READ:
-      f->eax = sys_read_handler(&args);
-      break;
+     if(!(validate_ptr( *((char **)args.args[1]) ))) {
+        exit_fail(f);
+      } else{
+        f->eax = sys_read_handler(&args);
+        break;
+      }
     case SYS_WRITE:
-      f->eax = sys_write_handler(&args);
-      break;
+     if(!(validate_ptr( *((char **)args.args[1]) ))) {
+        exit_fail(f);
+      } else{
+        f->eax = sys_write_handler(&args);
+        break;
+      }
   }
-  //intr_set_level(old_level);
 }
 
-static void exit_fail(struct intr_frame *f){
+void exit_fail(struct intr_frame *f){
   struct arguments bad_args;
   int i = -1;
   bad_args.args[0] = (void *) &i;
@@ -173,7 +178,7 @@ static void sys_halt_handler(void) {
   shutdown_power_off();
 }
 
-static void build_fork(void *args_) {
+static void build_fork(void *args_ UNUSED) {
   struct thread *cur = thread_current();
 
   lock_acquire(&cur->forking_child_lock);
@@ -234,19 +239,19 @@ static tid_t sys_fork_handler(struct intr_frame *f) {
   for (pde = cur->pagedir; pde < cur->pagedir + pd_no (PHYS_BASE); pde++) {
     if (*pde & PTE_P) {
 
-        uint32_t *pt = pde_get_pt (*pde);
-        uint32_t *pte;
-        
-        for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++) {
-          if (*pte & PTE_P) {
-            void *goody = pti_pdi_get_base((uint32_t) (pte - pt), (uint32_t) (pde - cur->pagedir));
-            
-            void *new_page = palloc_get_page(PAL_USER);
-            void *parent_page = pte_get_page(*pte);
-            memcpy(new_page, parent_page, PGSIZE);
-            pagedir_set_page(new_pagedir, goody, new_page, true);
-          }   
-        }
+      uint32_t *pt = pde_get_pt (*pde);
+      uint32_t *pte;
+      
+      for (pte = pt; pte < pt + PGSIZE / sizeof *pte; pte++) {
+        if (*pte & PTE_P) {
+          void *goody = pti_pdi_get_base((uint32_t) (pte - pt), (uint32_t) (pde - cur->pagedir));
+          
+          void *new_page = palloc_get_page(PAL_USER);
+          void *parent_page = pte_get_page(*pte);
+          memcpy(new_page, parent_page, PGSIZE);
+          pagedir_set_page(new_pagedir, goody, new_page, true);
+        }   
+      }
     }
   }
   tid_t child_tid = (tid_t) thread_create(cur->name, cur->priority, &build_fork, &args);
@@ -259,35 +264,54 @@ static tid_t sys_fork_handler(struct intr_frame *f) {
   enum intr_level old_level = intr_disable ();
   thread_foreach(&populate_child, &child_args);
   intr_set_level (old_level);
-  // struct list_elem *e;
-  // for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e)) {
-  //     struct thread *child = list_entry (e, struct thread, allelem);
-  //     printf("%s\n", child->name);
-  //     if (child->tid == child_tid) {
-  //       child->pagedir = new_pagedir;
-  //       memcpy(&child->i_f, f, sizeof(struct intr_frame));
 
-  //       struct child_thread_info *child = malloc(sizeof(struct child_thread_info));
-  //       child->status = -1; // This is the default value, we're very pessimistic..
-  //       child->tid = child_tid;
-  //       child->dead = false; // It's not stillborn
-  //       list_push_back(&(cur->child_list), &(child->waiting_list_elem));
-
-  //       break;
-  //     }
-  // }
   return child_tid;
 }
 
 static void sys_exit_handler(struct arguments *args) {
   int status = *((int *) args->args[0]);
+
+  thread_current()->exit_status = status;
   printf("%s: exit(%d)\n", thread_current()->name, status);
 
   // Need to still return the status to the kernel parent thread...
   thread_exit();
 }
 
-static void sys_pipe_handler(struct arguments *args) {
+static int sys_pipe_handler(struct arguments *args) {
+  int *fd = ((int *) args->args[0]);
+
+  struct fd *file_desc1 = (struct fd *) malloc(sizeof(struct fd));
+  struct fd *file_desc2 = (struct fd *) malloc(sizeof(struct fd));
+
+  struct thread *cur_thread = thread_current();
+
+  if(file_desc2 == NULL)
+    return -1;
+
+  if(file_desc1 == NULL)
+    return -1;
+
+  struct fd_buffer *fd_buf = (struct fd_buffer *) malloc(sizeof(struct fd_buffer));
+  fd_buf->first = 0;
+  fd_buf->last = 0;
+  fd_buf->ref_count = 2;
+  lock_init(&fd_buf->buf_lock);
+
+  file_desc1->buf = fd_buf;
+  file_desc1->fd = cur_thread->next_fd;
+
+  (cur_thread->next_fd)++;
+
+  file_desc2->buf = fd_buf;
+  file_desc2->fd = cur_thread->next_fd;
+
+  (cur_thread->next_fd)++;
+
+  fd[0] = file_desc1->fd;
+  fd[1] = file_desc2->fd;
+
+  return 0;
 
 }
 
@@ -296,11 +320,11 @@ static void sys_exec_handler(struct arguments *args) {
      
   fn_copy = palloc_get_page (0);
 
-  char  *cmd_line = *((char **) args->args[0]);
+  char *cmd_line = *((char **) args->args[0]);
 
   strlcpy(fn_copy, cmd_line, PGSIZE);
 
-  exec_start((void *)cmd_line);
+  exec_start((void *)fn_copy);
 }
 
 static int sys_wait_handler(struct arguments *args) {
@@ -327,7 +351,6 @@ static int sys_open_handler(struct arguments *args) {
   (cur_thread->next_fd)++;
   file_desc->f = f;
   file_desc->buf = NULL;
-  file_desc->dup = NULL;
 
   list_push_back(&cur_thread->fd_list, &file_desc->fd_elem);
   return file_desc->fd;
@@ -391,37 +414,50 @@ static uint32_t sys_filesize_handler(struct arguments *args) {
 
   return 0;
 }
-static void sys_dup2_handler(struct arguments *args) {
+static int sys_dup2_handler(struct arguments *args) {
   int fd1 = *((int *) args->args[0]);
   int fd2 = *((int *) args->args[1]);
 
   struct fd *file_desc1 = find_file_desc(fd1);
   struct fd *file_desc2 = find_file_desc(fd2);
 
+  struct thread *cur_thread = thread_current();
+
   // If oldfd not valid, do nothing
   if(file_desc1 == NULL)
-    return;
+    return -1;
 
   if(file_desc2 != NULL){
-    file_desc2->dup = file_desc1;
-    if(file_desc2->buf == NULL){
+    if(file_desc2->f != NULL)
       file_close(file_desc2->f);
-    } else{
+    else{
       (file_desc2->buf->ref_count)--;
       if (file_desc2->buf->ref_count == 0) {
         free(file_desc2->buf);
       }
     }
+
+    if(file_desc1->buf == NULL){
+      file_desc2->f = file_desc1->f;
+
+    } else{
+      file_desc2->buf = file_desc1->buf;
+      file_desc1->buf->ref_count++;
+    }
   } else{
     file_desc2 = (struct fd *) malloc(sizeof(struct fd));
-    file_desc2->dup = file_desc1;
+    file_desc2->fd = cur_thread->next_fd;
+    list_push_back(&cur_thread->fd_list, &file_desc2->fd_elem);
+    (cur_thread->next_fd)++;
   }
+
+  return 0;
 }
 
 static int sys_read_handler(struct arguments *args) {
   int fd = *((int *) args->args[0]);
-  void *buf = *((void **) args->args[1]);
-  off_t size = *((off_t *) args->args[2]);
+  char *buf = *((char **) args->args[1]);
+  uint32_t size = *((off_t *) args->args[2]);
 
   if(fd == 0){
     return (off_t) input_getc();
@@ -446,27 +482,25 @@ static int sys_read_handler(struct arguments *args) {
   if(file_desc == NULL || !found)
     return -1;
 
-  // If duped
-  if(file_desc->dup == NULL){
-    if(file_desc->buf == NULL){
-      return (int) file_read(file_desc->f, buf, size);
-    } else{
-      return -1;
+  if(file_desc->buf == NULL){
+    return (int) file_read(file_desc->f, buf, size);
+  } else {
+    // It's a buffer, so we'll read as much as we can, and return what that was.
+    uint32_t read = 0;
+    lock_acquire(&file_desc->buf->buf_lock);
+    while (read < size && file_desc->buf->last != file_desc->buf->first) {
+      buf[read] = file_desc->buf->fd_buf[file_desc->buf->first];
+      file_desc->buf->first++;
+      read++;
     }
-  } else{
-    struct arguments new_args;
-    int dup_fd = file_desc->dup->fd;
-    off_t dup_size = size;
-    new_args.args[0] = (void *) &dup_fd;
-    new_args.args[1] = buf;
-    new_args.args[2] = (void *) &dup_size;
-    return sys_read_handler(&new_args);
+    lock_release(&file_desc->buf->buf_lock);
+    return read;
   }
 }
 
 static uint32_t sys_write_handler(struct arguments *args) {
   int fd = *((int *) args->args[0]);
-  void *buf = *((void **) args->args[1]);
+  char *buf = *((char **) args->args[1]);
   uint32_t size = *((uint32_t *) args->args[2]);
 
   if (fd == 1) {
@@ -484,22 +518,22 @@ static uint32_t sys_write_handler(struct arguments *args) {
   for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
     struct fd *file_desc = list_entry (e, struct fd, fd_elem);
     if (file_desc->fd == fd) {
-      if(file_desc->dup != NULL){
-        struct arguments dup_arguments;
-        int dup_fd = file_desc->fd;
-        int dup_size = size;
-        dup_arguments.args[0] = &dup_fd;
-        dup_arguments.args[1] = buf;
-        dup_arguments.args[2] = &dup_size;
-        return sys_write_handler(&dup_arguments);
-      } else{
-        if (file_desc->buf == NULL && !(file_desc->f->deny_write)) {
-          return (uint32_t) file_write(file_desc->f, buf, size);
+      if (file_desc->buf == NULL && !(file_desc->f->deny_write)) {
+        return (uint32_t) file_write(file_desc->f, buf, size);
+      } else if (file_desc->buf != NULL) {
+        // It's a buffer, we will write as much as we can, and then return what that was
+        uint32_t written = 0;
+        lock_acquire(&file_desc->buf->buf_lock);
+        while (written < size && file_desc->buf->last - file_desc->buf->first != FD_BUF_SIZE) {
+          file_desc->buf->fd_buf[file_desc->buf->last] = buf[written];
+          file_desc->buf->last++;
+          written++;
         }
-        break; 
+        lock_release(&file_desc->buf->buf_lock);
+        return written;
       }
+      break; 
     }
   }
-
   return 0;
 }

@@ -159,6 +159,8 @@ struct thread
     struct intr_frame i_f;
 #endif
 
+    int exit_status;
+
     // For managing child processes in wait and fork
     struct list child_list;
     struct condition waiting_for_child;

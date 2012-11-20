@@ -2,6 +2,7 @@ cat
 cmp
 cp
 echo
+fork
 halt
 hex-dump
 ls

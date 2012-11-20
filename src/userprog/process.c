@@ -53,16 +53,17 @@ process_execute (const char *file_name)
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-  
-  /*
-	*/
 	
 	strlcpy(fn_copy, file_name, PGSIZE);
+
+  // Make a copy of the filename for the thread name to avoid modifying the const
+  // string
+  char temp_name[16];
+  memcpy(temp_name, file_name, 16);
 	
   //Parse file name from passed file name
   char *saveptr;
-  char *cur = strtok_r(file_name, " ", &saveptr);
-
+  char *cur = strtok_r(temp_name, " ", &saveptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (cur, PRI_DEFAULT, start_process, fn_copy);

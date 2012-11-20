@@ -238,8 +238,6 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  //bool userprog = false;
-
   // Initialize information for USERPROG threads
 #ifdef USERPROG
   t->next_fd = 3;
@@ -248,7 +246,9 @@ thread_create (const char *name, int priority,
   lock_init(&t->forking_child_lock);
   cond_init(&t->forking_child_cond);
   t->ready = false;
-  //t->userprog = true;
+  t->running_code_file = NULL;
+  int zero = 0;
+  memcpy(t->running_code_filename, &zero, 20);
 #endif
 
   list_init(&t->child_list);
@@ -620,17 +620,16 @@ next_thread_to_run (void)
 
     for (b_e = list_begin(&blocked_list); b_e != list_end(&blocked_list); b_e = list_next(b_e)) {
       struct thread *child = list_entry(b_e, struct thread, blocked_elem);
-      while (child->status == THREAD_BLOCKED && child->blocked_lock->holder != NULL) {
-        if (child->blocked_lock != NULL) {
+      if (child->blocked_lock != NULL) {
+        while (child->status == THREAD_BLOCKED && child->blocked_lock->holder != NULL) {
           struct thread *next_child = child->blocked_lock->holder;
           if (next_child->priority < child->priority) {
             next_child->priority = child->priority;
           }
           child = next_child;
-        } else {
-          break;
         }
       }
+      
     }
 
     // Get highest priority thread on ready list. Note that we iterate in the appropriate

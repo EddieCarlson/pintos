@@ -97,7 +97,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_OPEN:
       if(!(validate_ptr( *((char **)args.args[0]) ))) {
         exit_fail(f);
-      } else{
+      } else {
         f->eax = sys_open_handler(&args);
         break;
       }
@@ -397,6 +397,7 @@ static void sys_close_handler(struct arguments *args) {
     }
   }
 }
+
 static uint32_t sys_filesize_handler(struct arguments *args) {
   int fd = *((int *) args->args[0]);
 
@@ -414,6 +415,7 @@ static uint32_t sys_filesize_handler(struct arguments *args) {
 
   return 0;
 }
+
 static int sys_dup2_handler(struct arguments *args) {
   int fd1 = *((int *) args->args[0]);
   int fd2 = *((int *) args->args[1]);

@@ -157,6 +157,8 @@ struct thread
     struct condition forking_child_cond;
     bool ready;
     struct intr_frame i_f;
+    struct file *running_code_file;
+    char running_code_filename[20]; 
 #endif
 
     int exit_status;

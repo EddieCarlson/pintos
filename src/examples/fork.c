@@ -1,7 +1,5 @@
 #include <syscall.h>
 #include <stdio.h>
-#include "/homes/iws/knappg/pintos/src/tests/lib.h"
-#include "/homes/iws/knappg/pintos/src/tests/main.h"
 
 int
 main (int argc, char **argv)

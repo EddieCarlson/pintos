@@ -177,13 +177,24 @@ process_wait (tid_t child_tid UNUSED)
   return returned_status;
 }
 
+
+// Helper functions for iterating over threads in process exit
 static thread_action_func mark_dead;
 
-static void mark_dead(struct thread *child, void *args_) {
+static void mark_dead(struct thread *child, void *args_ UNUSED) {
   struct thread *cur = thread_current();
 
   if (child->parent_thread == cur) {
     child->parent_thread = NULL;
+  }
+}
+
+static thread_action_func check_running_code_writable;
+
+static void check_running_code_writable(struct thread *t, void *arg) {
+  struct thread *cur = thread_current();
+  if (strlen(t->running_code_filename) != 0 && strcmp(cur->running_code_filename, t->running_code_filename) && t != cur) {
+    *((bool *) arg) = false;
   }
 }
 
@@ -196,6 +207,18 @@ process_exit (void)
   struct thread *parent = cur->parent_thread;
 
   uint32_t *pd;
+
+  bool can_allow_writes = true;
+
+  int old = intr_disable();
+  thread_foreach (&check_running_code_writable, &can_allow_writes);
+  intr_set_level(old);
+
+  if(can_allow_writes && cur->running_code_file != NULL) {
+    file_allow_write(cur->running_code_file);
+  }
+
+  file_close(cur->running_code_file);
 
   if(parent != NULL) {
     lock_acquire(&(parent->waiting_child_lock));
@@ -351,6 +374,10 @@ load (struct arguments *args, void (**eip) (void), void **esp)
       goto done; 
     }
 
+  file_deny_write(file);
+  t->running_code_file = file;
+  strlcpy(t->running_code_filename, args->args[0], 20);
+
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -475,7 +502,7 @@ load (struct arguments *args, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // We will close the file in process exit, so as to deny writes to executables
   return success;
 }
 

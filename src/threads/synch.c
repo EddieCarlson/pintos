@@ -132,6 +132,8 @@ sema_up (struct semaphore *sema)
     // remove it from the list of waiters, and unblock it
     best_thread->blocked_lock = NULL;
     list_remove(&best_thread->elem);
+    if (&(best_thread->blocked_elem) != NULL && (best_thread->blocked_elem.prev) != NULL && (best_thread->blocked_elem.next) != NULL)
+      list_remove(&best_thread->blocked_elem);
     thread_unblock(best_thread);
   }
   sema->value++;

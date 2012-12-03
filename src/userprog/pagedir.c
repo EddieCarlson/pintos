@@ -66,6 +66,13 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
 
   /* Check for a page table for VADDR.
      If one is missing, create one if requested. */
+
+  // Better commments for us:
+
+  // pd_no(vaddr) gets the top 10 bits of vaddr, which corresponds
+  // to its index into the page directory. pd + pd_no (pde) references
+  // a page table
+
   pde = pd + pd_no (vaddr);
   if (*pde == 0) 
     {
@@ -82,7 +89,13 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
     }
 
   /* Return the page table entry. */
+
+  // This bit actually gets the page table pointed to by pde
   pt = pde_get_pt (*pde);
+
+  // This gets the second 10 bits from the top, and adds it onto the
+  // page table to get a reference to the page (this is a page table entry).
+  // One must still call pte_get_page on this to get the final page (see pagedir_get_page)
   return &pt[pt_no (vaddr)];
 }
 

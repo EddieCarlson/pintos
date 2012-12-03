@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/synch.h"
+#include "vm/frame.h"
 
 #define WORD_SIZE sizeof(void *)
 #define SUPPORTED_ARGS 3
@@ -246,7 +247,7 @@ static tid_t sys_fork_handler(struct intr_frame *f) {
         if (*pte & PTE_P) {
           void *goody = pti_pdi_get_base((uint32_t) (pte - pt), (uint32_t) (pde - cur->pagedir));
           
-          void *new_page = palloc_get_page(PAL_USER);
+          void *new_page = frame_alloc();
           void *parent_page = pte_get_page(*pte);
           memcpy(new_page, parent_page, PGSIZE);
           pagedir_set_page(new_pagedir, goody, new_page, true);
@@ -318,7 +319,7 @@ static int sys_pipe_handler(struct arguments *args) {
 static void sys_exec_handler(struct arguments *args) {
   char *fn_copy;
      
-  fn_copy = palloc_get_page (0);
+  fn_copy = frame_alloc();
 
   char *cmd_line = *((char **) args->args[0]);
 

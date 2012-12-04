@@ -1,5 +1,6 @@
 #include "threads/thread.h"
 #include <debug.h>
+#include <hash.h>
 #include <stddef.h>
 #include <random.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "userprog/process.h"
 #include "userprog/syscall.h"
 #endif
+#include "vm/page.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -255,6 +257,8 @@ thread_create (const char *name, int priority,
   cond_init(&t->waiting_for_child);
   lock_init(&t->waiting_child_lock);
   t->exit_status = -1;
+
+  hash_init(&t->spt, &std_hash, &std_hash_less, NULL);
 
   /* Add to run queue. */
   thread_unblock (t);

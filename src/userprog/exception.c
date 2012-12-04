@@ -1,10 +1,15 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <string.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+#include "vm/frame.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -109,6 +114,51 @@ kill (struct intr_frame *f)
     }
 }
 
+static void page_fault_die(void *fault_addr, bool not_present, bool write, bool user, struct intr_frame *f) {
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+    fault_addr,
+    not_present ? "not present" : "rights violation",
+    write ? "writing" : "reading",
+    user ? "user" : "kernel");
+  kill (f);
+}
+
+static bool link_page(struct spt_value *p) {
+  uint8_t *upage = p->upage;
+  struct file *file = p->f;
+  off_t ofs = p->offs;
+  uint32_t page_read_bytes = p->read_bytes;
+  uint32_t page_zero_bytes = p->zero_bytes;
+  bool writable = p->writable;
+
+  struct thread *t = thread_current();
+
+  file_seek (file, ofs);
+
+  /* Get a page of memory. */
+  uint8_t *kpage = frame_alloc();
+  if (kpage == NULL) {
+    return false;
+  }
+
+  /* Load this page. */
+  if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+    frame_free(kpage);
+    return false; 
+  }
+  memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+
+  bool install = pagedir_get_page (t->pagedir, upage) == NULL && pagedir_set_page (t->pagedir, upage, kpage, writable);
+  /* Add the page to the process's address space. */
+  if (!install) {
+    frame_free(kpage);
+    return false; 
+  }
+
+  return true;
+}
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -128,10 +178,10 @@ page_fault (struct intr_frame *f)
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
 
-  // A user program should just exit cleanly
-  #ifdef USERPROG
-    exit_fail(f);
-  #endif
+  // // A user program should just exit cleanly
+  // #ifdef USERPROG
+  //   exit_fail(f);
+  // #endif
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -154,14 +204,20 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+  // Make sure that we can get it from the threads SPT
+  struct spt_value *p = get_by_vaddr((uint8_t *) pg_round_down(fault_addr));
+  if (p == NULL) {
+    #ifdef USERPROG
+      exit_fail(f);
+    #endif
+    page_fault_die(fault_addr, not_present, write, user, f);
+  }
+
+  if (p->is_data_code && !link_page(p)) {
+    printf("Link page fails!\n");
+    page_fault_die(fault_addr, not_present, write, user, f);
+  }
+
+  // Need to be removing entries here.
 }
 

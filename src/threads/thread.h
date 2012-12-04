@@ -2,6 +2,7 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
@@ -146,6 +147,8 @@ struct thread
     int original_priority;        /* The original priority given to the thread.
                                      For use in priority donation. */
     bool user_prog;
+    struct hash spt;
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

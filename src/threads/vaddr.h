@@ -52,6 +52,10 @@ static inline void *pg_round_down (const void *va) {
    virtual address space belongs to the kernel. */
 #define	PHYS_BASE ((void *) LOADER_PHYS_BASE)
 
+/* We define the default stack size to be 8MB, as defined by this
+   equation. */
+#define STACK_SIZE PGSIZE << 11
+
 /* Returns true if VADDR is a user virtual address. */
 static inline bool
 is_user_vaddr (const void *vaddr) 

@@ -203,17 +203,40 @@ page_fault (struct intr_frame *f)
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
+  struct thread *t = thread_current();
 
   // Make sure that we can get it from the threads SPT
   struct spt_value *p = get_by_vaddr((uint8_t *) pg_round_down(fault_addr));
   if (p == NULL) {
     #ifdef USERPROG
-      exit_fail(f);
+
+      // Check to see if this is requesting stack growth by accessing an
+      // address just below the stack
+      if (fault_addr >= f->esp - 32 && fault_addr <= f->esp) {
+
+        // Make sure that we still have some room on the stack
+        if (PHYS_BASE - pg_round_down(f->esp) >= STACK_SIZE) {
+          exit_fail(f); // or kill?
+        }
+
+        uint8_t *kpage = frame_alloc();
+        if (kpage == NULL) {
+          exit_fail(f);
+        }
+        memset (kpage, 0, PGSIZE);
+
+        bool install = pagedir_get_page (t->pagedir, pg_round_down(fault_addr)) == NULL
+            && pagedir_set_page (t->pagedir, pg_round_down(fault_addr), kpage, true);
+
+        if (!install) {
+          frame_free(kpage);
+          exit_fail(f); 
+        }
+        return;
+      }
     #endif
     page_fault_die(fault_addr, not_present, write, user, f);
-  }
-
-  if (p->is_data_code && !link_page(p)) {
+  } else if (p->is_data_code && !link_page(p)) {
     printf("Link page fails!\n");
     page_fault_die(fault_addr, not_present, write, user, f);
   }

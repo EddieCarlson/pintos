@@ -28,27 +28,31 @@ struct arguments {
 };
 static thread_func build_fork NO_RETURN;
 
+static struct lock filesys_lock;
+
 static bool validate_ptr(void * ptr);
 
 static void syscall_handler (struct intr_frame *);
 static void populate_arg_struct(struct intr_frame *f, struct arguments *args, int num_args);
 
 // 0 argument sys_calls
-static void sys_halt_handler(void); //
+static void sys_halt_handler(void);
 static tid_t sys_fork_handler(struct intr_frame *f);
 
 // 1 argument sys_calls
-static void sys_exit_handler(struct arguments *args); //?
+static void sys_exit_handler(struct arguments *args);
 static int sys_pipe_handler(struct arguments *args); 
 static void sys_exec_handler(struct arguments *args);
-static int sys_wait_handler(struct arguments *args); ///?
-static int sys_open_handler(struct arguments *args); ///?
+static int sys_wait_handler(struct arguments *args);
+static int sys_open_handler(struct arguments *args);
 static off_t sys_tell_handler(struct arguments *args); 
-static void sys_close_handler(struct arguments *args); ///?
-static uint32_t sys_filesize_handler(struct arguments *args); ///?
+static void sys_close_handler(struct arguments *args);
+static uint32_t sys_filesize_handler(struct arguments *args);
+static bool sys_remove_handler (struct arguments *args);
 
 // 2 argument sys_calls
 static int sys_dup2_handler(struct arguments *args);
+static bool sys_create_handler (struct arguments *args);
 
 // 3 argument sys_calls
 static int sys_read_handler(struct arguments *args);
@@ -60,6 +64,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&filesys_lock);
 }
 
 static void
@@ -127,6 +132,20 @@ syscall_handler (struct intr_frame *f UNUSED)
       } else{
         f->eax = sys_write_handler(&args);
         break;
+      }
+    case SYS_CREATE:
+      if(!(validate_ptr( *((char **)args.args[1]) ))) {
+        exit_fail(f);
+      } else {
+        f->eax = sys_create_handler(&args);
+        break; 
+      }
+    case SYS_REMOVE:
+      if(!(validate_ptr( *((char **)args.args[1]) ))) {
+        exit_fail(f);
+      } else {
+        f->eax = sys_remove_handler(&args);
+        break; 
       }
   }
 }
@@ -334,13 +353,14 @@ static int sys_wait_handler(struct arguments *args) {
 }
 
 static int sys_open_handler(struct arguments *args) {
-
   char *file_name = *((char **) args->args[0]);
 
   if(file_name == NULL)
     return -1;
 
+  lock_acquire(&filesys_lock);
   struct file *f = filesys_open(file_name);
+  lock_release(&filesys_lock);
 
   if (f == NULL) {
     return -1;
@@ -539,4 +559,25 @@ static uint32_t sys_write_handler(struct arguments *args) {
     }
   }
   return 0;
+}
+
+bool sys_create_handler (struct arguments *args) {
+  char *file_name = *((char **) args->args[0]);
+  unsigned initial_size = *((unsigned *) args->args[1]);
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_create(file_name, initial_size);
+  lock_release(&filesys_lock);
+
+  return success;
+}
+
+bool sys_remove_handler (struct arguments *args) {
+  char *file_name = *((char **) args->args[0]);
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_remove(file_name);
+  lock_release(&filesys_lock);
+
+  return success;
 }

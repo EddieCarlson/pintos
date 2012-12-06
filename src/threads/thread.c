@@ -259,6 +259,7 @@ thread_create (const char *name, int priority,
   t->exit_status = -1;
 
   hash_init(&t->spt, &std_hash, &std_hash_less, NULL);
+  hash_init(&t->mmt, &mmt_hash, &mmt_hash_less, NULL);
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -362,6 +363,8 @@ thread_exit (void)
   ASSERT (!intr_context ());
 
   intr_disable ();
+
+  // FREE ALL THE MAPS
 
 #ifdef USERPROG
   process_exit ();

@@ -147,7 +147,8 @@ struct thread
     int original_priority;        /* The original priority given to the thread.
                                      For use in priority donation. */
     bool user_prog;
-    struct hash spt;
+    struct hash spt; // Supplemental page table
+    struct hash mmt; // Memory map table (for memory mapped files)
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

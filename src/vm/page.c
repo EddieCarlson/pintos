@@ -17,6 +17,18 @@ bool std_hash_less(const struct hash_elem *a, const struct hash_elem *b, void *a
   return one->upage < two->upage;
 }
 
+unsigned mmt_hash(const struct hash_elem *e, void *aux UNUSED) {
+  struct mmt_value *h = hash_entry(e, struct mmt_value, mmt_elem);
+  return hash_bytes(&h->page_base, sizeof(h->page_base));
+}
+
+bool mmt_hash_less(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
+  struct mmt_value *one = hash_entry (a, struct mmt_value, mmt_elem);
+  struct mmt_value *two = hash_entry (b, struct mmt_value, mmt_elem);
+
+  return one->page_base < two->page_base;
+}
+
 void add_data_mapping(struct file *f, off_t offs, uint32_t read_bytes, uint32_t zero_bytes, bool writable, uint8_t *upage) {
   struct thread *cur = thread_current();
   struct spt_value *val = (struct spt_value *) malloc(sizeof(struct spt_value));
@@ -30,6 +42,21 @@ void add_data_mapping(struct file *f, off_t offs, uint32_t read_bytes, uint32_t 
   val->writable = writable;
 
   hash_insert(&cur->spt, &val->spt_elem);
+}
+
+void add_file_memory_mapping(struct file *f, off_t offs, uint32_t read_bytes, uint32_t zero_bytes, bool writable, void *addr, int map_id) {
+  struct thread *cur = thread_current();
+  add_data_mapping(f, offs, read_bytes, zero_bytes, writable, (uint8_t *) addr);
+  
+  // Add to thread's mmt
+  struct mmt_value *val = (struct mmt_value *) malloc(sizeof(struct mmt_value));
+  val->f = f;
+  val->offs = offs;
+  val->page_bytes = read_bytes;
+  val->map_id = map_id;
+  val->page_base = addr + offs;
+
+  hash_insert(&cur->mmt, &val->mmt_elem);
 }
 
 struct spt_value *get_by_vaddr(uint8_t *vaddr) {

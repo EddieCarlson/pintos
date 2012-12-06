@@ -238,6 +238,8 @@ process_exit (void)
     lock_release(&(parent->waiting_child_lock));
   }
 
+  // FREE THE FILE_DESCRIPTORS???
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;

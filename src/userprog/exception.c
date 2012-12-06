@@ -239,8 +239,7 @@ page_fault (struct intr_frame *f)
     #endif
     page_fault_die(fault_addr, not_present, write, user, f);
   } else if (p->is_data_code && !link_page(p)) {
-    printf("Link page fails!\n");
-    page_fault_die(fault_addr, not_present, write, user, f);
+    exit_fail(f);
   }
 
   // Need to be removing entries here.

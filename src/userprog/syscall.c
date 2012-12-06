@@ -18,6 +18,7 @@
 #include "threads/pte.h"
 #include "threads/synch.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 #define WORD_SIZE sizeof(void *)
 #define SUPPORTED_ARGS 3
@@ -48,11 +49,13 @@ static int sys_open_handler(struct arguments *args);
 static off_t sys_tell_handler(struct arguments *args); 
 static void sys_close_handler(struct arguments *args);
 static uint32_t sys_filesize_handler(struct arguments *args);
-static bool sys_remove_handler (struct arguments *args);
+static bool sys_remove_handler(struct arguments *args);
+static void sys_munmap_handler(struct arguments *args);
 
 // 2 argument sys_calls
 static int sys_dup2_handler(struct arguments *args);
 static bool sys_create_handler (struct arguments *args);
+static int sys_mmap_handler(struct arguments *args);
 
 // 3 argument sys_calls
 static int sys_read_handler(struct arguments *args);
@@ -147,6 +150,16 @@ syscall_handler (struct intr_frame *f UNUSED)
         f->eax = sys_remove_handler(&args);
         break; 
       }
+    case SYS_MMAP:
+      if (false) {//if(!(validate_ptr( *((char **)args.args[1]) ))) {
+        exit_fail(f);
+      } else {
+        f->eax = sys_mmap_handler(&args);
+        break; 
+      }
+    case SYS_MUNMAP:
+      sys_munmap_handler(&args);
+      break;
   }
 }
 
@@ -561,7 +574,7 @@ static uint32_t sys_write_handler(struct arguments *args) {
   return 0;
 }
 
-bool sys_create_handler (struct arguments *args) {
+bool sys_create_handler(struct arguments *args) {
   char *file_name = *((char **) args->args[0]);
   unsigned initial_size = *((unsigned *) args->args[1]);
 
@@ -572,7 +585,7 @@ bool sys_create_handler (struct arguments *args) {
   return success;
 }
 
-bool sys_remove_handler (struct arguments *args) {
+bool sys_remove_handler(struct arguments *args) {
   char *file_name = *((char **) args->args[0]);
 
   lock_acquire(&filesys_lock);
@@ -580,4 +593,72 @@ bool sys_remove_handler (struct arguments *args) {
   lock_release(&filesys_lock);
 
   return success;
+}
+
+int sys_mmap_handler(struct arguments *args) {
+  int fd = *((int *) args->args[0]);
+  void *addr = *((void **) args->args[1]);
+
+  struct thread *cur = thread_current();
+
+  // ERROR CHECKING
+  if (addr == NULL || (uint32_t) addr % PGSIZE != 0) { // Addr not page aligned or null
+    return -1;
+  }
+  if (fd == 0 || fd == 1) {
+    return -1;
+  }
+
+  struct fd *file_desc = NULL;
+  struct list_elem  *e;
+  for (e = list_begin(&cur->fd_list); e != list_end(&cur->fd_list); e = list_next(e)) {
+    file_desc = list_entry (e, struct fd, fd_elem);
+    if (file_desc->fd == fd) {
+      break;
+    }
+  }
+
+  if (file_desc == NULL || file_desc->buf != NULL) {
+    return -1;
+  }
+
+  struct file *file_copy = file_reopen(file_desc->f);
+  uint32_t length = file_length(file_copy);
+  if (length == 0) {
+    return -1;
+  }
+
+  off_t ofs = 0;
+  uint32_t read_bytes = length;
+
+  int map_id = cur->next_fd;
+  (cur->next_fd)++;
+
+  // Hairy bit! Watch out for bugs here
+  uint32_t zero_bytes = PGSIZE - (length % PGSIZE);
+  zero_bytes = zero_bytes % PGSIZE == 0 ? 0 : zero_bytes;
+
+  while (read_bytes > 0 || zero_bytes > 0) {
+    size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+    if (pagedir_get_page(cur->pagedir, addr) != NULL) {
+      // We should clean up the previously allocated elements in the mmt (aux function in page.c?)
+      return -1;
+    }
+
+    add_file_memory_mapping(file_copy, ofs, page_read_bytes, page_zero_bytes, true, addr, map_id);
+    ofs += page_read_bytes;
+
+    read_bytes -= page_read_bytes;
+    zero_bytes -= page_zero_bytes;
+    addr += PGSIZE;
+  }
+
+  return map_id;
+}
+
+void sys_munmap_handler(struct arguments *args) {
+  int map_id UNUSED = *((int *) args->args[0]);
+
 }

@@ -212,7 +212,7 @@ page_fault (struct intr_frame *f)
 
       // Check to see if this is requesting stack growth by accessing an
       // address just below the stack
-      if (fault_addr >= f->esp - 32 && fault_addr <= f->esp) {
+      if (fault_addr >= (f->esp - 32) && fault_addr < PHYS_BASE) {
 
         // Make sure that we still have some room on the stack
         if (PHYS_BASE - pg_round_down(f->esp) >= STACK_SIZE) {
@@ -233,6 +233,8 @@ page_fault (struct intr_frame *f)
           exit_fail(f); 
         }
         return;
+      } else{
+        exit_fail(f);
       }
     #endif
     page_fault_die(fault_addr, not_present, write, user, f);

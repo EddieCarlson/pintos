@@ -259,7 +259,7 @@ thread_create (const char *name, int priority,
   t->exit_status = -1;
 
   hash_init(&t->spt, &std_hash, &std_hash_less, NULL);
-  hash_init(&t->mmt, &mmt_hash, &mmt_hash_less, NULL);
+  list_init(&t->mmt);
 
   /* Add to run queue. */
   thread_unblock (t);

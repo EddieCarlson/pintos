@@ -210,12 +210,14 @@ page_fault (struct intr_frame *f)
   if (p == NULL) {
     #ifdef USERPROG
 
+      void *esp = user ? f->esp : t->page_fault_esp;
+
       // Check to see if this is requesting stack growth by accessing an
       // address just below the stack
-      if (fault_addr >= (f->esp - 32) && fault_addr < PHYS_BASE) {
+      if (fault_addr >= (esp - 32) && fault_addr < PHYS_BASE) {
 
         // Make sure that we still have some room on the stack
-        if (PHYS_BASE - pg_round_down(f->esp) >= STACK_SIZE) {
+        if (PHYS_BASE - pg_round_down(esp) >= STACK_SIZE) {
           exit_fail(f); // or kill?
         }
 

@@ -56,6 +56,7 @@ static void sys_munmap_handler(struct arguments *args);
 static int sys_dup2_handler(struct arguments *args);
 static bool sys_create_handler (struct arguments *args);
 static int sys_mmap_handler(struct arguments *args);
+static void sys_seek_handler(struct arguments *args);
 
 // 3 argument sys_calls
 static int sys_read_handler(struct arguments *args);
@@ -79,6 +80,8 @@ syscall_handler (struct intr_frame *f UNUSED)
     bad_args.args[0] = (void *) &i;
     sys_exit_handler(&bad_args);
   }
+
+  thread_current()->page_fault_esp = f->esp;
 
   int syscall_number = *((int *) f->esp);
   struct arguments args;
@@ -123,7 +126,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_dup2_handler(&args);
       break;
     case SYS_READ:
-     if(!(validate_ptr( *((char **)args.args[1]) ))) {
+     if (false) {//if(!(validate_ptr( *((char **)args.args[1]) ))) {
         exit_fail(f);
       } else{
         f->eax = sys_read_handler(&args);
@@ -137,7 +140,7 @@ syscall_handler (struct intr_frame *f UNUSED)
         break;
       }
     case SYS_CREATE:
-      if(!(validate_ptr( *((char **)args.args[1]) ))) {
+      if (false) {//if(!(validate_ptr( *((char **)args.args[1]) ))) {
         exit_fail(f);
       } else {
         f->eax = sys_create_handler(&args);
@@ -160,6 +163,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_MUNMAP:
       sys_munmap_handler(&args);
       break;
+    case SYS_SEEK:
+      sys_seek_handler(&args);
+      break;
+
   }
 }
 
@@ -172,11 +179,16 @@ void exit_fail(struct intr_frame *f){
 }
 
 static bool validate_ptr(void * ptr){
-  if (!(is_user_vaddr(ptr)))
+  if (!(is_user_vaddr(ptr))) {
     return false;
+  }
+    
 
-  if(pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
+  
+  if(pagedir_get_page(thread_current()->pagedir, ptr) == NULL) {
     return false;
+  }
+    
 
   return true;
 }
@@ -367,7 +379,7 @@ static int sys_wait_handler(struct arguments *args) {
 
 static int sys_open_handler(struct arguments *args) {
   char *file_name = *((char **) args->args[0]);
-
+  
   if(file_name == NULL)
     return -1;
 
@@ -495,6 +507,9 @@ static int sys_read_handler(struct arguments *args) {
   char *buf = *((char **) args->args[1]);
   uint32_t size = *((off_t *) args->args[2]);
 
+  // printf("Read data\n");
+  // printf("fd: %d, buf: %p, size: %d\n", fd, buf, size);
+
   if(fd == 0){
     return (off_t) input_getc();
   }
@@ -519,6 +534,8 @@ static int sys_read_handler(struct arguments *args) {
     return -1;
 
   if(file_desc->buf == NULL){
+    // int read = (int) file_read(file_desc->f, buf, size);
+    // printf("Amount read: %d\n", read);
     return (int) file_read(file_desc->f, buf, size);
   } else {
     // It's a buffer, so we'll read as much as we can, and return what that was.
@@ -577,6 +594,9 @@ static uint32_t sys_write_handler(struct arguments *args) {
 bool sys_create_handler(struct arguments *args) {
   char *file_name = *((char **) args->args[0]);
   unsigned initial_size = *((unsigned *) args->args[1]);
+
+  // printf("sys_create\n");
+  // printf("name: %s, size: %d\n", file_name, initial_size);
 
   lock_acquire(&filesys_lock);
   bool success = filesys_create(file_name, initial_size);
@@ -642,7 +662,12 @@ int sys_mmap_handler(struct arguments *args) {
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-    if (pagedir_get_page(cur->pagedir, addr) != NULL) {
+    struct spt_value p;
+    struct hash_elem *e;
+    p.upage = addr;
+    e = hash_find (&cur->spt, &p.spt_elem);
+
+    if (e != NULL || pagedir_get_page(cur->pagedir, addr) != NULL) {
       // We should clean up the previously allocated elements in the mmt (aux function in page.c?)
       return -1;
     }
@@ -659,6 +684,57 @@ int sys_mmap_handler(struct arguments *args) {
 }
 
 void sys_munmap_handler(struct arguments *args) {
-  int map_id UNUSED = *((int *) args->args[0]);
+  int map_id = *((int *) args->args[0]);
 
+  struct thread *cur = thread_current();
+  struct file *f = NULL;
+
+  struct list_elem *e = list_begin(&cur->mmt);
+
+  while (e != list_end(&cur->mmt)) {
+    struct mmt_value *val = list_entry(e, struct mmt_value, mmt_elem);
+
+    bool update = true;
+    if (val->map_id == map_id) {
+      f = val->f;
+
+      // Write back to the file if the page has been modified
+      if (pagedir_is_dirty(cur->pagedir, val->page_base)) {
+        //printf("Writing to disk!");
+        file_write_at(f, val->page_base, val->page_bytes, val->offs);
+      }
+
+      update = false;
+      e = list_next(e);
+      list_remove(&val->mmt_elem);
+
+      void *frame_addr = pagedir_get_page(cur->pagedir, val->page_base);
+      if (frame_addr != NULL) {
+        frame_free(frame_addr);  
+      }
+      
+      free(val);
+    }
+
+    if (update) {
+      e = list_next(e);
+    }
+  }
+
+  file_close(f);
+}
+
+void sys_seek_handler(struct arguments *args) {
+  int fd = *((int *) args->args[0]);
+  unsigned offs = *((unsigned *) args->args[1]);
+
+  struct thread *cur_thread = thread_current();
+  struct list_elem *e;
+  for (e = list_begin(&cur_thread->fd_list); e != list_end(&cur_thread->fd_list); e = list_next(e)) {
+    struct fd *file_desc = list_entry (e, struct fd, fd_elem);
+    if (file_desc->fd == fd) {
+      file_seek(file_desc->f, offs);
+      return;
+    }
+  }
 }

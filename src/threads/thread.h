@@ -130,6 +130,7 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
+    void *page_fault_esp;               /* Saved stack pointer for page faults from kernel mode. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
 	
@@ -148,7 +149,7 @@ struct thread
                                      For use in priority donation. */
     bool user_prog;
     struct hash spt; // Supplemental page table
-    struct hash mmt; // Memory map table (for memory mapped files)
+    struct list mmt; // Memory map table (for memory mapped files)
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

@@ -5,7 +5,10 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#include "devices/block.h"
 #include "filesys/off_t.h"
+#include "threads/thread.h"
+
 
 hash_hash_func std_hash;
 hash_less_func std_hash_less;
@@ -27,6 +30,7 @@ struct spt_value {
   bool writable;
 
   // Swap metadata???
+  block_sector_t swap_idx;
 
 };
 
@@ -43,6 +47,10 @@ struct mmt_value {
 
 void add_data_mapping(struct file *f, off_t offs, uint32_t read_bytes, uint32_t zero_bytes, bool writable, uint8_t *upage);
 void add_file_memory_mapping(struct file *f, off_t offs, uint32_t read_bytes, uint32_t zero_bytes, bool writable, void *addr, int map_id);
+void add_swap_mapping(block_sector_t swap_idx, struct thread *owner, void *uaddr, bool writable);
+void mmt_destroy(struct list *mmt);
+void mmt_unmap(struct list *mmt, int map_id);
+
 
 //void add_swap_mapping()
 

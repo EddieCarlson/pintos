@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include "devices/block.h"
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -10,6 +11,7 @@
 #include "userprog/syscall.h"
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -148,15 +150,37 @@ static bool link_page(struct spt_value *p) {
   }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-
-  bool install = pagedir_get_page (t->pagedir, upage) == NULL && pagedir_set_page (t->pagedir, upage, kpage, writable);
+  bool install = install_frame(upage, kpage, writable);
   /* Add the page to the process's address space. */
   if (!install) {
     frame_free(kpage);
     return false; 
   }
 
+  hash_delete(&t->spt, &p->spt_elem);
+
   return true;
+}
+
+static bool bring_from_swap(struct spt_value *p) {
+  struct thread *cur = thread_current();
+  void *upage = (void *) p->upage;
+  block_sector_t swap_idx = p->swap_idx;
+  bool writable = p->writable;
+
+  // Lock this?
+  void *kpage = frame_alloc();
+
+  printf("Kpage: %p, Upage: %p\n", kpage, upage);
+
+  swap_read_page(swap_idx, kpage, true);
+  bool success = install_frame(upage, kpage, writable);
+
+  if (success) {
+    hash_delete(&cur->spt, &p->spt_elem);
+  }
+
+  return success;
 }
 
 /* Page fault handler.  This is a skeleton that must be filled in
@@ -207,6 +231,8 @@ page_fault (struct intr_frame *f)
 
   // Make sure that we can get it from the threads SPT
   struct spt_value *p = get_by_vaddr((uint8_t *) pg_round_down(fault_addr));
+
+  // Will need to check if it is in the swap via p, if so evict and bring in
   if (p == NULL) {
     #ifdef USERPROG
 
@@ -236,14 +262,24 @@ page_fault (struct intr_frame *f)
         }
         return;
       } else{
+        // printf("Fault_addr: %p\n", fault_addr);
+        // printf("Stack failed\n");
+        printf("Bad addr: %p\n", fault_addr);  
+        
         exit_fail(f);
       }
     #endif
     page_fault_die(fault_addr, not_present, write, user, f);
-  } else if (p->is_data_code && !link_page(p)) {
-    exit_fail(f);
+  } else if (p->is_data_code) {
+    if (!link_page(p)) {
+      printf("Couldn't link\n");
+      exit_fail(f);
+    }
+  } else {
+    if (!bring_from_swap(p)) {
+      printf("Couldn't swap\n");
+      exit_fail(f);
+    }
   }
-
-  // Need to be removing entries here.
 }
 

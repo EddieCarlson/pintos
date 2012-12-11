@@ -74,7 +74,7 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  if(!(validate_ptr(f->esp))){
+  if(!(validate_ptr(f->esp)) || pagedir_get_page(thread_current()->pagedir, f->esp) == NULL) {
     struct arguments bad_args;
     int i = -1;
     bad_args.args[0] = (void *) &i;
@@ -126,7 +126,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = sys_dup2_handler(&args);
       break;
     case SYS_READ:
-     if (false) {//if(!(validate_ptr( *((char **)args.args[1]) ))) {
+     if(!(validate_ptr( *((char **)args.args[1]) ))) {
         exit_fail(f);
       } else{
         f->eax = sys_read_handler(&args);
@@ -183,11 +183,9 @@ static bool validate_ptr(void * ptr){
     return false;
   }
     
-
-  
-  if(pagedir_get_page(thread_current()->pagedir, ptr) == NULL) {
-    return false;
-  }
+  // if(pagedir_get_page(thread_current()->pagedir, ptr) == NULL) {
+  //   return false;
+  // }
     
 
   return true;
@@ -687,41 +685,7 @@ void sys_munmap_handler(struct arguments *args) {
   int map_id = *((int *) args->args[0]);
 
   struct thread *cur = thread_current();
-  struct file *f = NULL;
-
-  struct list_elem *e = list_begin(&cur->mmt);
-
-  while (e != list_end(&cur->mmt)) {
-    struct mmt_value *val = list_entry(e, struct mmt_value, mmt_elem);
-
-    bool update = true;
-    if (val->map_id == map_id) {
-      f = val->f;
-
-      // Write back to the file if the page has been modified
-      if (pagedir_is_dirty(cur->pagedir, val->page_base)) {
-        //printf("Writing to disk!");
-        file_write_at(f, val->page_base, val->page_bytes, val->offs);
-      }
-
-      update = false;
-      e = list_next(e);
-      list_remove(&val->mmt_elem);
-
-      void *frame_addr = pagedir_get_page(cur->pagedir, val->page_base);
-      if (frame_addr != NULL) {
-        frame_free(frame_addr);  
-      }
-      
-      free(val);
-    }
-
-    if (update) {
-      e = list_next(e);
-    }
-  }
-
-  file_close(f);
+  mmt_unmap(&cur->mmt, map_id);
 }
 
 void sys_seek_handler(struct arguments *args) {

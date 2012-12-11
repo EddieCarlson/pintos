@@ -240,6 +240,13 @@ process_exit (void)
 
   // FREE THE FILE_DESCRIPTORS???
 
+  // Free MMT entries
+  mmt_destroy(&cur->mmt);
+
+  // Free SPT entries
+
+
+
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -254,6 +261,8 @@ process_exit (void)
          that's been freed (and cleared). */
       cur->pagedir = NULL;
       pagedir_activate (NULL);
+
+      // Freeing frames happens in pagedir_destroy
       pagedir_destroy (pd);
     }
 }
@@ -582,41 +591,16 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-
-  // printf("Read-bytes: %d\n", read_bytes);
-  // printf("Zero-bytes: %d\n", zero_bytes);
-  
-  // return true;
-
-  // file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) {
+
       /* Calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      // /* Get a page of memory. */
-      // uint8_t *kpage = frame_alloc();
-      // if (kpage == NULL)
-      //   return false;
-
-      // /* Load this page. */
-      // if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-      //   {
-      //     frame_free(kpage);
-      //     return false; 
-      //   }
-      // memset (kpage + page_read_bytes, 0, page_zero_bytes);
       add_data_mapping(file, ofs, page_read_bytes, page_zero_bytes, writable, upage);
       ofs += page_read_bytes;
-
-      // /* Add the page to the process's address space. */
-      // if (!install_page (upage, kpage, writable)) 
-      //   {
-      //     frame_free(kpage);
-      //     return false; 
-      //   }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -637,7 +621,7 @@ setup_stack (void **esp)
   kpage = frame_alloc();
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      success = install_frame (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
         *esp = PHYS_BASE;
       else

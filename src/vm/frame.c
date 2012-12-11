@@ -3,6 +3,7 @@
 #include "devices/block.h"
 #include "threads/palloc.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
@@ -26,11 +27,13 @@ struct frame {
 
 static struct list frame_list;
 static struct list_elem *clock_pointer;
+static struct lock ft_lock;
 
 static struct frame *get_frame_by_paddr(void *paddr);
 
 void frame_init() {
   list_init(&frame_list);
+  //lock_init(&ft_lock);
 
   void *next_base = palloc_get_page(PAL_ZERO | PAL_USER);
 
@@ -50,7 +53,10 @@ void frame_init() {
 
 void *frame_alloc() {
   // Lock this?
+  // lock_acquire(&ft_lock);
   struct list_elem *e;
+
+  void *found = NULL;
 
   for (e = list_begin(&frame_list); e != list_end (&frame_list); e = list_next (e)) {
     struct frame *f = list_entry (e, struct frame, frame_elem);
@@ -59,11 +65,17 @@ void *frame_alloc() {
     if (f->available) {
       f->available = false;
 
-      return f->base;
+      found = f->base;
+      break;
     }
   }
 
-  return evict();
+  if (found == NULL) {
+    found = evict();
+  }
+
+  // lock_release(&ft_lock);
+  return found;
 
   // Add candidate to swap partition (make sure to lock)
 
@@ -75,6 +87,7 @@ void *frame_alloc() {
 
 bool frame_free(void *frame_addr) {
 
+  // lock_acquire(&ft_lock);
   struct list_elem *e;
   bool found = false;
 
@@ -89,9 +102,11 @@ bool frame_free(void *frame_addr) {
       memset (f->base, 0, PGSIZE);
 
       // Remove from list of users!
+      break;
     }
   }
 
+  // lock_release(&ft_lock);
   return found;
 }
 
@@ -143,6 +158,7 @@ void *evict(void) {
 }
 
 bool install_frame (void *upage, void *kpage, bool writable) {
+  //lock_acquire(&ft_lock);
   struct thread *cur = thread_current ();
 
   struct frame *f = get_frame_by_paddr(kpage);
@@ -155,6 +171,7 @@ bool install_frame (void *upage, void *kpage, bool writable) {
     f->writable = writable;
   }
 
+  //lock_release(&ft_lock);
   return success;
 }
 

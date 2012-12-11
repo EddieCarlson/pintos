@@ -5,6 +5,7 @@
 #include "devices/block.h"
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
@@ -18,6 +19,8 @@ static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
+
+static struct lock pg_lock;
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -66,6 +69,9 @@ exception_init (void)
      We need to disable interrupts for page faults because the
      fault address is stored in CR2 and needs to be preserved. */
   intr_register_int (14, 0, INTR_OFF, page_fault, "#PF Page-Fault Exception");
+
+  lock_init(&pg_lock);
+
 }
 
 /* Prints exception statistics. */
@@ -126,6 +132,7 @@ static void page_fault_die(void *fault_addr, bool not_present, bool write, bool 
 }
 
 static bool link_page(struct spt_value *p) {
+  lock_acquire(&pg_lock);
   uint8_t *upage = p->upage;
   struct file *file = p->f;
   off_t ofs = p->offs;
@@ -140,11 +147,13 @@ static bool link_page(struct spt_value *p) {
   /* Get a page of memory. */
   uint8_t *kpage = frame_alloc();
   if (kpage == NULL) {
+    lock_release(&pg_lock);
     return false;
   }
 
   /* Load this page. */
   if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+    lock_release(&pg_lock);
     frame_free(kpage);
     return false; 
   }
@@ -154,15 +163,18 @@ static bool link_page(struct spt_value *p) {
   /* Add the page to the process's address space. */
   if (!install) {
     frame_free(kpage);
+    lock_release(&pg_lock);
     return false; 
   }
 
   hash_delete(&t->spt, &p->spt_elem);
+  lock_release(&pg_lock);
 
   return true;
 }
 
 static bool bring_from_swap(struct spt_value *p) {
+  lock_acquire(&pg_lock);
   struct thread *cur = thread_current();
   void *upage = (void *) p->upage;
   block_sector_t swap_idx = p->swap_idx;
@@ -171,7 +183,7 @@ static bool bring_from_swap(struct spt_value *p) {
   // Lock this?
   void *kpage = frame_alloc();
 
-  printf("Kpage: %p, Upage: %p\n", kpage, upage);
+  // printf("Kpage: %p, Upage: %p\n", kpage, upage);
 
   swap_read_page(swap_idx, kpage, true);
   bool success = install_frame(upage, kpage, writable);
@@ -180,8 +192,10 @@ static bool bring_from_swap(struct spt_value *p) {
     hash_delete(&cur->spt, &p->spt_elem);
   }
 
+  lock_release(&pg_lock);
   return success;
 }
+
 
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
@@ -220,6 +234,7 @@ page_fault (struct intr_frame *f)
      be assured of reading CR2 before it changed). */
   intr_enable ();
 
+  //lock_acquire(&pg_lock);
   /* Count page faults. */
   page_fault_cnt++;
 
@@ -231,6 +246,12 @@ page_fault (struct intr_frame *f)
 
   // Make sure that we can get it from the threads SPT
   struct spt_value *p = get_by_vaddr((uint8_t *) pg_round_down(fault_addr));
+
+  //printf("FAULT\n");
+  if (p != NULL && !p->is_data_code && p->swap_idx == 8) {
+    printf("This is the 1!!!\n");
+    printf("esp: %x\n", *((int *) f->esp));
+  }
 
   // Will need to check if it is in the swap via p, if so evict and bring in
   if (p == NULL) {
@@ -244,11 +265,13 @@ page_fault (struct intr_frame *f)
 
         // Make sure that we still have some room on the stack
         if (PHYS_BASE - pg_round_down(esp) >= STACK_SIZE) {
+          //lock_release(&pg_lock);
           exit_fail(f); // or kill?
         }
 
         uint8_t *kpage = frame_alloc();
         if (kpage == NULL) {
+          // lock_release(&pg_lock);
           exit_fail(f);
         }
         memset (kpage, 0, PGSIZE);
@@ -258,6 +281,7 @@ page_fault (struct intr_frame *f)
 
         if (!install) {
           frame_free(kpage);
+          // lock_release(&pg_lock);
           exit_fail(f); 
         }
         return;
@@ -266,6 +290,11 @@ page_fault (struct intr_frame *f)
         // printf("Stack failed\n");
         printf("Bad addr: %p\n", fault_addr);  
         
+        if (p != NULL && !p->is_data_code && p->swap_idx == 8) {
+          printf("This is the one!!!\n");
+          printf("esp: %x\n", *((int *) f->esp));
+        }
+        // lock_release(&pg_lock);
         exit_fail(f);
       }
     #endif
@@ -273,13 +302,16 @@ page_fault (struct intr_frame *f)
   } else if (p->is_data_code) {
     if (!link_page(p)) {
       printf("Couldn't link\n");
+      // lock_release(&pg_lock);
       exit_fail(f);
     }
   } else {
     if (!bring_from_swap(p)) {
       printf("Couldn't swap\n");
+      // lock_release(&pg_lock);
       exit_fail(f);
     }
   }
+  // lock_release(&pg_lock);
 }
 

@@ -22,6 +22,7 @@ static void page_fault (struct intr_frame *);
 
 static struct lock pg_lock;
 
+
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -71,7 +72,6 @@ exception_init (void)
   intr_register_int (14, 0, INTR_OFF, page_fault, "#PF Page-Fault Exception");
 
   lock_init(&pg_lock);
-
 }
 
 /* Prints exception statistics. */
@@ -153,8 +153,8 @@ static bool link_page(struct spt_value *p) {
 
   /* Load this page. */
   if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
-    lock_release(&pg_lock);
     frame_free(kpage);
+    lock_release(&pg_lock);
     return false; 
   }
   memset (kpage + page_read_bytes, 0, page_zero_bytes);
@@ -183,10 +183,12 @@ static bool bring_from_swap(struct spt_value *p) {
   // Lock this?
   void *kpage = frame_alloc();
 
+
   // printf("Kpage: %p, Upage: %p\n", kpage, upage);
 
-  swap_read_page(swap_idx, kpage, true);
+  // printf("Upage: %p\n", upage);
   bool success = install_frame(upage, kpage, writable);
+  swap_read_page(swap_idx, kpage, true);
 
   if (success) {
     hash_delete(&cur->spt, &p->spt_elem);
@@ -238,20 +240,21 @@ page_fault (struct intr_frame *f)
   /* Count page faults. */
   page_fault_cnt++;
 
+  ASSERT(f != NULL);
   /* Determine cause. */
   not_present = (f->error_code & PF_P) == 0;
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
   struct thread *t = thread_current();
+  // printf("num_faults: %d\n", page_fault_cnt);
 
   // Make sure that we can get it from the threads SPT
   struct spt_value *p = get_by_vaddr((uint8_t *) pg_round_down(fault_addr));
 
   //printf("FAULT\n");
-  if (p != NULL && !p->is_data_code && p->swap_idx == 8) {
-    printf("This is the 1!!!\n");
-    printf("esp: %x\n", *((int *) f->esp));
-  }
+  // if (p != NULL && !p->is_data_code && p->swap_idx == 8) {
+  //   printf("This is the 1!!!\n");
+  // }
 
   // Will need to check if it is in the swap via p, if so evict and bring in
   if (p == NULL) {
@@ -288,12 +291,8 @@ page_fault (struct intr_frame *f)
       } else{
         // printf("Fault_addr: %p\n", fault_addr);
         // printf("Stack failed\n");
-        printf("Bad addr: %p\n", fault_addr);  
-        
-        if (p != NULL && !p->is_data_code && p->swap_idx == 8) {
-          printf("This is the one!!!\n");
-          printf("esp: %x\n", *((int *) f->esp));
-        }
+        // printf("Bad addr: %p\n", fault_addr);  
+
         // lock_release(&pg_lock);
         exit_fail(f);
       }
@@ -301,13 +300,13 @@ page_fault (struct intr_frame *f)
     page_fault_die(fault_addr, not_present, write, user, f);
   } else if (p->is_data_code) {
     if (!link_page(p)) {
-      printf("Couldn't link\n");
+      // printf("Couldn't link\n");
       // lock_release(&pg_lock);
       exit_fail(f);
     }
   } else {
     if (!bring_from_swap(p)) {
-      printf("Couldn't swap\n");
+      // printf("Couldn't swap\n");
       // lock_release(&pg_lock);
       exit_fail(f);
     }

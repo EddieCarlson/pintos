@@ -33,13 +33,14 @@ static struct frame *get_frame_by_paddr(void *paddr);
 
 void frame_init() {
   list_init(&frame_list);
-  //lock_init(&ft_lock);
+  lock_init(&ft_lock);
 
   void *next_base = palloc_get_page(PAL_ZERO | PAL_USER);
 
   while (next_base != NULL) {
 
     struct frame *next_frame = (struct frame *) malloc(sizeof(struct frame));
+
     next_frame->base = next_base;
     next_frame->available = true;
 
@@ -53,7 +54,7 @@ void frame_init() {
 
 void *frame_alloc() {
   // Lock this?
-  // lock_acquire(&ft_lock);
+  lock_acquire(&ft_lock);
   struct list_elem *e;
 
   void *found = NULL;
@@ -66,15 +67,17 @@ void *frame_alloc() {
       f->available = false;
 
       found = f->base;
+      //printf("found\n");
       break;
     }
   }
 
   if (found == NULL) {
+    //printf("evict\n");
     found = evict();
   }
 
-  // lock_release(&ft_lock);
+  lock_release(&ft_lock);
   return found;
 
   // Add candidate to swap partition (make sure to lock)
@@ -87,13 +90,14 @@ void *frame_alloc() {
 
 bool frame_free(void *frame_addr) {
 
-  // lock_acquire(&ft_lock);
+  lock_acquire(&ft_lock);
   struct list_elem *e;
   bool found = false;
 
   for (e = list_begin(&frame_list); e != list_end (&frame_list); e = list_next (e)) {
     struct frame *f = list_entry (e, struct frame, frame_elem);
 
+    ASSERT(f != NULL);
     // Lock this!
     if (f->base == frame_addr) {
       f->available = true;
@@ -106,7 +110,7 @@ bool frame_free(void *frame_addr) {
     }
   }
 
-  // lock_release(&ft_lock);
+  lock_release(&ft_lock);
   return found;
 }
 
@@ -119,25 +123,26 @@ void *evict(void) {
 
   // Run clock to find suitable candidate
   while (true) {
+    ASSERT(clock_pointer != NULL);
     struct frame *f = list_entry(clock_pointer, struct frame, frame_elem);
+
+    ASSERT(f->base != NULL);
+
+    ASSERT(f != NULL);
     bool access_bit = pagedir_is_accessed (cur->pagedir, f->vaddr);
+    pagedir_set_accessed (cur->pagedir, f->vaddr, false);
+
+
     if (!access_bit) {
-      // Found one, increment the pointer and break
-      if (clock_pointer == list_end(&frame_list)) {
-        clock_pointer = list_begin(&frame_list);
-      } else {
-        clock_pointer = list_next(clock_pointer);
-      }
       candidate = f;
       break;
     }
 
-    pagedir_set_accessed (cur->pagedir, f->vaddr, false);
+    clock_pointer = list_next(clock_pointer);
     if (clock_pointer == list_end(&frame_list)) {
       clock_pointer = list_begin(&frame_list);
-    } else {
-      clock_pointer = list_next(clock_pointer);
     }
+
   }
 
   ASSERT(candidate != NULL);
@@ -150,6 +155,7 @@ void *evict(void) {
   add_swap_mapping(swap_idx, candidate->user, candidate->vaddr, candidate->writable);
 
   // Update frame data (frame_install)
+  ASSERT(candidate->user != NULL);
   pagedir_clear_page(candidate->user->pagedir, candidate->vaddr);
   candidate->user = cur;
 
@@ -158,7 +164,7 @@ void *evict(void) {
 }
 
 bool install_frame (void *upage, void *kpage, bool writable) {
-  //lock_acquire(&ft_lock);
+  lock_acquire(&ft_lock);
   struct thread *cur = thread_current ();
 
   struct frame *f = get_frame_by_paddr(kpage);
@@ -171,7 +177,7 @@ bool install_frame (void *upage, void *kpage, bool writable) {
     f->writable = writable;
   }
 
-  //lock_release(&ft_lock);
+  lock_release(&ft_lock);
   return success;
 }
 
